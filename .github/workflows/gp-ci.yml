@@ -1,0 +1,135 @@
+name: gp-ci
+
+on:
+  pull_request:
+    branches: [Testing, Maintaining]
+  push:
+    branches: [Testing, Maintaining, 'ci/**']
+
+concurrency:
+  group: gp-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  ARM_GNU_VERSION: 14.2.Rel1
+  CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  firmware:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CMake, Ninja and cppcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build cppcheck
+
+      - name: Install Arm GNU toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: ${{ env.ARM_GNU_VERSION }}
+
+      - name: Tool versions
+        run: |
+          cmake --version | head -n 1
+          ninja --version
+          arm-none-eabi-gcc --version | head -n 1
+          cppcheck --version
+
+      - name: Configure
+        run: cmake --preset Debug
+
+      - name: Build
+        run: cmake --build --preset Debug 2>&1 | tee build.log
+
+      - name: Static analysis report
+        continue-on-error: true
+        run: |
+          mkdir -p out
+          files=$(git ls-files -- '*.c' ':(exclude)Drivers' ':(exclude)tests')
+          if [ -z "$files" ]; then
+            echo "cppcheck: no project C files found" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          cppcheck --enable=warning,style,performance,portability --inline-suppr --quiet \
+            --suppress=missingIncludeSystem --error-exitcode=0 \
+            --xml --output-file=out/cppcheck.xml $files
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p out
+          cp build.log out/
+          find build -name '*.elf' -exec cp {} out/ \;
+          find build -name '*.map' -exec cp {} out/ \;
+          shopt -s nullglob
+          elfs=(out/*.elf)
+          if [ ${#elfs[@]} -eq 0 ]; then
+            echo "No .elf produced" >&2
+            exit 1
+          fi
+          for f in "${elfs[@]}"; do
+            arm-none-eabi-objcopy -O ihex "$f" "${f%.elf}.hex"
+            arm-none-eabi-size "$f" | tee "${f%.elf}.size.txt"
+          done
+          {
+            echo "event=$GITHUB_EVENT_NAME"
+            echo "candidate_sha=$CANDIDATE_SHA"
+            echo "built_commit=$(git rev-parse HEAD)"
+            echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > out/SHA.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ env.CANDIDATE_SHA }}
+          path: out/
+          if-no-files-found: error
+
+  host-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check harness
+        id: harness
+        run: |
+          if [ -f tests/host/CMakeLists.txt ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Host tests: Not ready (tests/host/CMakeLists.txt missing)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Install tools
+        if: steps.harness.outputs.ready == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gcc g++
+
+      - name: Configure
+        if: steps.harness.outputs.ready == 'true'
+        run: cmake -S tests/host -B build/host -G Ninja
+
+      - name: Build
+        if: steps.harness.outputs.ready == 'true'
+        run: cmake --build build/host
+
+      - name: Run
+        if: steps.harness.outputs.ready == 'true'
+        run: ctest --test-dir build/host --output-on-failure
+
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.harness.outputs.ready == 'true'
+        with:
+          name: host-test-reports-${{ env.CANDIDATE_SHA }}
+          path: build/host/Testing/
+          if-no-files-found: ignore
