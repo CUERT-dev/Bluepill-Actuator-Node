@@ -47,7 +47,6 @@ static int32_t slew_toward(int32_t current,
         (current > 0 && target < 0))
     {
         effective_target = 0;
-        *remainder = 0U;
     }
 
     if (current == effective_target)
@@ -135,7 +134,7 @@ GpResult CommandMap_Update(CommandMap *map,
     int32_t steering_result;
 
     /* If possible, make the output safe before checking arguments. */
-    if (out != NULL)
+    if (out != NULL && (map == NULL || out != &map->previous))
     {
         out->throttle_duty_pm = 0;
         out->steering_rate_pm = 0;
@@ -143,6 +142,7 @@ GpResult CommandMap_Update(CommandMap *map,
 
     if (map == NULL || command == NULL || out == NULL)
     {
+        clear_history(map);
         return GP_BAD_ARG;
     }
 
@@ -163,11 +163,21 @@ GpResult CommandMap_Update(CommandMap *map,
     if (command->throttle_pm > 1000U ||
         command->steering_pm < -1000 ||
         command->steering_pm > 1000 ||
+        (command->flags & GP_FLAG_VALID) == 0U ||
+        (command->flags & ~(GP_FLAG_VALID | GP_FLAG_ARM | GP_FLAG_DEADMAN)) != 0U ||
         dt_ms == 0U ||
         dt_ms > map->config.max_dt_ms)
     {
         clear_history(map);
         return GP_INVALID;
+    }
+
+    /* Arming and deadman are motion permissions, independent of validity. */
+    if ((command->flags & (GP_FLAG_ARM | GP_FLAG_DEADMAN)) !=
+        (GP_FLAG_ARM | GP_FLAG_DEADMAN))
+    {
+        clear_history(map);
+        return GP_OK;
     }
 
     /* Apply the configured output caps. */

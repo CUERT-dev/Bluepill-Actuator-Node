@@ -25,7 +25,7 @@ GpResult CommandMap_Init(
  * @brief Map a target command to motor output with slew-rate limiting.
  *
  * @param map Pointer to the initialized command map.
- * @param command Pointer to the latest validated target command.
+ * @param command Command in per-mille, with VALID and no unknown flags.
  * @param dt_ms Elapsed update time in milliseconds.
  * @param enabled Whether motion is currently permitted.
  * @param out Pointer to the resulting motor output.
@@ -33,6 +33,9 @@ GpResult CommandMap_Init(
  * @return GP_OK on success.
  *         GP_BAD_ARG if a required pointer is NULL.
  *         GP_INVALID if the command or timing is invalid.
+ * Missing ARM or DEADMAN stops immediately with GP_OK. Disabled updates
+ * stop without validating values/timing. Every error clears available output
+ * and history. out may refer to map->previous.
  */
 GpResult CommandMap_Update(
     CommandMap *map,

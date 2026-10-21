@@ -21,6 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "gp_app.h"
+#include "gp_stm32_bsp.h"
 
 /* USER CODE END Includes */
 
@@ -87,6 +89,8 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
+  GpBsp_Init();
+  GpApp_Create();
 
   /* USER CODE END 2 */
 
@@ -170,6 +174,7 @@ static void MX_GPIO_Init(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
+  GpApp_Fatal(7);
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1)
@@ -188,8 +193,7 @@ void Error_Handler(void)
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  GpApp_AssertFailed((const char *)file, (int)line);
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

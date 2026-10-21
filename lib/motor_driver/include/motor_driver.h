@@ -8,56 +8,27 @@
 #ifndef MOTOR_DRIVER_H
 #define MOTOR_DRIVER_H
 
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-
-//our typedefs
-
-typedef enum {
-    GP_OK = 0,
-    GP_PENDING,
-    GP_BAD_ARG,
-    GP_INVALID,
-    GP_STALE,
-    GP_IO_ERROR,
-    GP_NO_SPACE
-} GpResult;
-
-
-typedef struct {
-    int16_t throttle_duty_pm, steering_rate_pm;
-} MotorOutput;
-
-typedef struct {
-    bool estop_ok, enabled;
-} MotorSafety;
-
-typedef GpResult (*MotorWriteFn)(void *user, const MotorOutput *output);
-
-typedef void (*MotorOffFn)(void *user);
-
-typedef struct {
-    MotorWriteFn write;
-    MotorOffFn off;
-    void *user;
-    uint16_t max_duty_pm;
-    uint32_t max_step_hz;
-    uint16_t step_pulse_us, dir_setup_us, enable_setup_us;
-    uint32_t reversal_deadtime_ms;
-} MotorDriverConfig;
-
-typedef struct {
-    MotorDriverConfig config;
-    MotorOutput previous;
-    uint32_t zero_since_ms;
-    int8_t last_steering_direction;
-    bool initialized;
-} MotorDriver;
-
+#include "gp_types.h"
 
 /*
- * Init: validates and copies config, calls off() first.
+ * Adapter contract (no pin/timer implementation in this library):
+ * - off() synchronously stops both motors and cancels any pending write.
+ * - write() must stop STEP before changing DIR, establish DIR/ENA, then
+ *   enforce dir_setup_us and enable_setup_us before starting STEP.
+ * - GP_PENDING means BOTH motor outputs are inactive while the adapter
+ *   establishes signals / waits. Retry with the latest request; a changed
+ *   request must replace the pending request, never replay stale movement.
+ *   Pending work must not activate outputs autonomously between calls.
+ * - GP_OK means the requested output is active. Other results cause off().
+ * The driver enforces reversal deadtime BEFORE write(). Setup timing is
+ * delegated to the adapter: waiting before write() cannot enforce it.
+ * The adapter must receive the same configuration via user and enforce
+ * max_step_hz, step_pulse_us and setup intervals; write receives per-mille,
+ * not Hz. No hardware timing compliance is established by host tests.
+ *
+ * Init: copies config and calls its off() before numerical validation.
+ * Call Stop before reinitializing a live instance. A failed Init leaves the
+ * instance uninitialized. Config may refer to driver->config.
  *   GP_OK, GP_BAD_ARG (NULL pointer / callback), GP_INVALID (bad number).
  */
 GpResult MotorDriver_Init(MotorDriver *driver, const MotorDriverConfig *config);
@@ -66,17 +37,22 @@ GpResult MotorDriver_Init(MotorDriver *driver, const MotorDriverConfig *config);
  * Apply: call every actuator tick. 'applied' is always written
  * (zero on stop, error or pending).
  *   GP_OK        output written, or safety forced a stop
- *   GP_PENDING   steering reversal waiting, outputs off, retry next tick
+ *   GP_PENDING   deadtime or adapter setup waiting; both outputs inactive
  *   GP_INVALID   request out of range, outputs off
  *   GP_IO_ERROR  write() failed, outputs off
  *   GP_BAD_ARG   NULL argument or driver not initialized
+ * Startup and restart after Stop conservatively wait a full deadtime from
+ * the first nonzero steering request (Stop has no timestamp).
+ * Use a monotonic wrapping uint32_t millisecond clock; service transitions
+ * within 2^31 ms. request and applied may alias. Calls must be serialized.
  */
 GpResult MotorDriver_Apply(MotorDriver *driver, const MotorOutput *request,
                            const MotorSafety *safety, uint32_t now_ms,
                            MotorOutput *applied);
 
-/* Stop: immediate off, zeroes throttle, keeps config. Steering history is kept
- * so the next Apply restarts the reversal deadtime. NULL-safe. */
+/* Stop: immediate off, clears BOTH outputs and all transition history,
+ * preserves configuration and initialized state. NULL-safe and repeatable.
+ * Movement requires a fresh Apply request and safety permission. */
 void MotorDriver_Stop(MotorDriver *driver);
 
 

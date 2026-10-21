@@ -22,6 +22,9 @@
 #include "stm32f1xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "gp_diag.h"
+#include "gp_app.h"
+#include "gp_stm32_bsp.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,6 +49,9 @@
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
+/* Naked forwarding preserves the exception frame for the real FreeRTOS port. */
+void SVC_Handler(void) __attribute__((naked));
+void PendSV_Handler(void) __attribute__((naked));
 
 /* USER CODE END PFP */
 
@@ -69,6 +75,7 @@
 void NMI_Handler(void)
 {
   /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
+  GpApp_Fatal(8);
 
   /* USER CODE END NonMaskableInt_IRQn 0 */
   /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
@@ -84,6 +91,7 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
+  GpApp_Fatal(8);
 
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
@@ -99,6 +107,7 @@ void HardFault_Handler(void)
 void MemManage_Handler(void)
 {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
+  GpApp_Fatal(8);
 
   /* USER CODE END MemoryManagement_IRQn 0 */
   while (1)
@@ -114,6 +123,7 @@ void MemManage_Handler(void)
 void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
+  GpApp_Fatal(8);
 
   /* USER CODE END BusFault_IRQn 0 */
   while (1)
@@ -129,6 +139,7 @@ void BusFault_Handler(void)
 void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
+  GpApp_Fatal(8);
 
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)
@@ -144,6 +155,7 @@ void UsageFault_Handler(void)
 void SVC_Handler(void)
 {
   /* USER CODE BEGIN SVCall_IRQn 0 */
+  __asm volatile ("b vPortSVCHandler");
 
   /* USER CODE END SVCall_IRQn 0 */
   /* USER CODE BEGIN SVCall_IRQn 1 */
@@ -170,6 +182,7 @@ void DebugMon_Handler(void)
 void PendSV_Handler(void)
 {
   /* USER CODE BEGIN PendSV_IRQn 0 */
+  __asm volatile ("b xPortPendSVHandler");
 
   /* USER CODE END PendSV_IRQn 0 */
   /* USER CODE BEGIN PendSV_IRQn 1 */
@@ -187,6 +200,7 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
+  GpApp_KernelTick();
 
   /* USER CODE END SysTick_IRQn 1 */
 }
@@ -199,5 +213,12 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /* USER CODE BEGIN 1 */
+void USART1_IRQHandler(void)
+{
+  GpDiag_Interrupt();
+}
+void USB_LP_CAN1_RX0_IRQHandler(void) { GpBsp_CanInterrupt(); }
+void CAN1_RX1_IRQHandler(void) { GpBsp_CanInterrupt(); }
+void CAN1_SCE_IRQHandler(void) { GpBsp_CanInterrupt(); }
 
 /* USER CODE END 1 */

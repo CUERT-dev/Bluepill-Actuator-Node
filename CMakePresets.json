@@ -6,8 +6,13 @@
             "hidden": true,
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/${presetName}",
-		    "toolchainFile": "${sourceDir}/cmake/gcc-arm-none-eabi.cmake",
+            "toolchainFile": "${sourceDir}/cmake/gcc-arm-none-eabi.cmake",
             "cacheVariables": {
+                "GP_ENABLE_CAN": "OFF",
+                "GP_ENABLE_ACTUATION": "OFF",
+                "GP_UNPOWERED_SIGNAL_TEST": "OFF",
+                "GP_ENABLE_WATCHDOG": "OFF",
+                "GP_BOARD_APPROVAL_HEADER": ""
             }
         },
         {
@@ -23,6 +28,58 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
+        },
+        {
+            "name": "SafeFlash",
+            "inherits": "Debug",
+            "cacheVariables": {
+                "GP_ENABLE_CAN": "OFF",
+                "GP_ENABLE_ACTUATION": "OFF",
+                "GP_ENABLE_WATCHDOG": "OFF",
+                "GP_BOARD_APPROVAL_HEADER": ""
+            }
+        },
+        {
+            "name": "CanBench",
+            "inherits": "Debug",
+            "cacheVariables": {
+                "GP_ENABLE_CAN": "ON",
+                "GP_ENABLE_ACTUATION": "OFF",
+                "GP_ENABLE_WATCHDOG": "OFF",
+                "GP_BOARD_APPROVAL_HEADER": "${sourceDir}/App/Profiles/can_bench.h"
+            }
+        },
+        {
+            "name": "CanBenchRelease",
+            "inherits": "Release",
+            "cacheVariables": {
+                "GP_ENABLE_CAN": "ON",
+                "GP_ENABLE_ACTUATION": "OFF",
+                "GP_ENABLE_WATCHDOG": "OFF",
+                "GP_BOARD_APPROVAL_HEADER": "${sourceDir}/App/Profiles/can_bench.h"
+            }
+        },
+        {
+            "name": "SignalTest",
+            "inherits": "Debug",
+            "cacheVariables": {
+                "GP_ENABLE_CAN": "ON",
+                "GP_ENABLE_ACTUATION": "ON",
+                "GP_UNPOWERED_SIGNAL_TEST": "ON",
+                "GP_ENABLE_WATCHDOG": "OFF",
+                "GP_BOARD_APPROVAL_HEADER": "${sourceDir}/App/Profiles/signal_test.h"
+            }
+        },
+        {
+            "name": "SignalTestRelease",
+            "inherits": "Release",
+            "cacheVariables": {
+                "GP_ENABLE_CAN": "ON",
+                "GP_ENABLE_ACTUATION": "ON",
+                "GP_UNPOWERED_SIGNAL_TEST": "ON",
+                "GP_ENABLE_WATCHDOG": "OFF",
+                "GP_BOARD_APPROVAL_HEADER": "${sourceDir}/App/Profiles/signal_test.h"
+            }
         }
     ],
     "buildPresets": [
@@ -33,6 +90,26 @@
         {
             "name": "Release",
             "configurePreset": "Release"
+        },
+        {
+            "name": "SafeFlash",
+            "configurePreset": "SafeFlash"
+        },
+        {
+            "name": "CanBench",
+            "configurePreset": "CanBench"
+        },
+        {
+            "name": "CanBenchRelease",
+            "configurePreset": "CanBenchRelease"
+        },
+        {
+            "name": "SignalTest",
+            "configurePreset": "SignalTest"
+        },
+        {
+            "name": "SignalTestRelease",
+            "configurePreset": "SignalTestRelease"
         }
     ]
 }
