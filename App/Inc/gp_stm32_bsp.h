@@ -15,6 +15,7 @@ enum {
 };
 extern volatile GpBootStatus gp_boot_status;
 void GpBsp_Init(void);
+void GpBsp_EmergencyOff(void); /* register-only waveform stop, not power cutoff */
 bool GpBsp_ControlInputs(void *user, GpControlInputs *inputs);
 bool GpBsp_DiscardRx(void *user);
 GpResult GpBsp_CanStart(void);

@@ -78,6 +78,8 @@ static void entry(void *unused)
     uint32_t errors_seen = 0;
 #if GP_UNPOWERED_SIGNAL_TEST
     send_text("UNPOWERED SIGNAL TEST: disconnect motor power; no MCU E-stop/interlock/readiness inputs\r\n");
+#elif GP_CONTROLLED_BENCH_ACTUATION
+    send_text("COMMISSIONING CANDIDATE: actuation enabled; provisional settings; no safety/readiness inputs\r\n");
 #endif
     send_text("CUERT service 115200 8N1: status / recover + newline; no motor commands\r\n");
     for (;;) {

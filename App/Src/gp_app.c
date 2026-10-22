@@ -182,9 +182,10 @@ void vApplicationGetIdleTaskMemory(StaticTask_t **tcb, StackType_t **stack, uint
 void GpApp_Fatal(uint32_t reason)
 {
     __disable_irq();
+    GpBsp_EmergencyOff();
     gp_boot_status.panic_reason = reason;
-    /* A damaged task/kernel stack cannot safely call motor/RTOS callbacks.
-     * Approved IWDG/reset-safe hardware must cover this failure class. */
+    /* No driver/HAL/RTOS callbacks on this path. Register shutdown is best effort;
+     * independent hardware interruption is still needed for CPU/output failures. */
 #if GP_RESET_SAFE_APPROVED
     NVIC_SystemReset();
 #endif

@@ -3,8 +3,8 @@
 
 /* Physical routing is final: docs/hardware/final_pinout.png.
  * The current board has no MCU enable, interlock or E-stop readback. Active
- * waveforms are supported only for explicitly unpowered signal validation.
- * Signal settings describe test waveforms, not powered-operation approval. */
+ * waveforms require either unpowered signal validation or an explicit bench
+ * commissioning candidate. Neither mode provides independent power cutoff. */
 #ifdef GP_BOARD_APPROVAL_HEADER
 #include GP_BOARD_APPROVAL_HEADER
 #endif
@@ -16,6 +16,15 @@
 #endif
 #ifndef GP_UNPOWERED_SIGNAL_TEST
 #define GP_UNPOWERED_SIGNAL_TEST 0
+#endif
+#ifndef GP_CONTROLLED_BENCH_ACTUATION
+#define GP_CONTROLLED_BENCH_ACTUATION 0
+#endif
+#ifndef GP_BENCH_COMMISSIONING_APPROVED
+#define GP_BENCH_COMMISSIONING_APPROVED 0
+#endif
+#ifndef GP_STEERING_EXTERNAL_READY_BEFORE_ARM
+#define GP_STEERING_EXTERNAL_READY_BEFORE_ARM 0
 #endif
 #ifndef GP_ENABLE_WATCHDOG
 #define GP_ENABLE_WATCHDOG 0
@@ -134,9 +143,18 @@
 #if GP_ENABLE_CAN && (GP_CAN_BITRATE == 0 || GP_CAN_PRESCALER < 1 || GP_CAN_PRESCALER > 1024 || GP_CAN_BS1_TQ < 1 || GP_CAN_BS1_TQ > 16 || GP_CAN_BS2_TQ < 1 || GP_CAN_BS2_TQ > 8 || GP_CAN_SJW_TQ < 1 || GP_CAN_SJW_TQ > 4 || GP_CAN_SJW_TQ > GP_CAN_BS2_TQ)
 #error "Invalid CAN timing parameters"
 #endif
-#if GP_ENABLE_ACTUATION && !GP_UNPOWERED_SIGNAL_TEST
-#error "Powered operation is not supported by the current-board firmware"
+#if GP_UNPOWERED_SIGNAL_TEST && GP_CONTROLLED_BENCH_ACTUATION
+#error "Select exactly one output mode: signal validation or controlled bench"
 #endif
+#if GP_ENABLE_ACTUATION && !GP_UNPOWERED_SIGNAL_TEST && !GP_CONTROLLED_BENCH_ACTUATION
+#error "Powered outputs require an explicit controlled bench commissioning mode"
+#endif
+#if GP_CONTROLLED_BENCH_ACTUATION && (!GP_ENABLE_ACTUATION || !GP_ENABLE_CAN)
+#error "Controlled bench actuation requires CAN and waveform outputs"
+#endif
+/* Physical verification is not a compiler dependency. These status values may
+ * remain zero in a commissioning candidate; no fake healthy input is supplied.
+ * Numerical, routing and protocol feasibility checks below still apply. */
 #if GP_UNPOWERED_SIGNAL_TEST && !GP_ENABLE_ACTUATION
 #error "Unpowered signal testing requires waveform outputs"
 #endif

@@ -32,18 +32,7 @@ static void output_gpio(GPIO_TypeDef *gpio, uint16_t pin, bool high, bool altern
 static void raw_off(void *user)
 {
     (void)user;
-    /* Clocked registers only; no waits and no interrupt generation. */
-    TIM2->CCER &= ~TIM_CCER_CC2E;
-    TIM3->CCER &= ~TIM_CCER_CC1E;
-    TIM2->CR1 &= ~TIM_CR1_CEN;
-    TIM3->CR1 &= ~TIM_CR1_CEN;
-    TIM2->CCR2 = TIM3->CCR1 = 0;
-#if GP_ENABLE_ACTUATION
-    output_gpio(GPIOB, GPIO_PIN_3, GP_PWM_ACTIVE_HIGH == 0, false);
-    output_gpio(GPIOB, GPIO_PIN_4, GP_REVERSE_INACTIVE_HIGH == 1, false);
-    output_gpio(GPIOA, GPIO_PIN_6, GP_STEP_ACTIVE_HIGH == 0, false);
-    /* DIR is held. With unwired ENA, pulse-off does not remove holding torque. */
-#endif
+    GpBsp_EmergencyOff();
 }
 
 void GpBsp_Init(void)
@@ -61,8 +50,7 @@ void GpBsp_Init(void)
     __HAL_AFIO_REMAP_TIM3_DISABLE();   /* final PA6/STEP; PB4 stays GPIO */
 #endif
     raw_off(NULL);
-    /* Final pin assignments, unknown electrical polarity: do not drive motors.
-     * No AF PWM/STEP route is selected in the inhibited build. */
+    /* No AF PWM/STEP route is selected in the inhibited build. */
 #if !GP_ENABLE_ACTUATION
     GPIO_InitTypeDef analog = {0};
     analog.Mode = GPIO_MODE_ANALOG;
@@ -101,7 +89,7 @@ static bool permitted(void *user)
     (void)user;
 #if GP_ENABLE_ACTUATION
     /* Software waveform permission only; this board has no safety readbacks. */
-    return timer_ready && GP_UNPOWERED_SIGNAL_TEST;
+    return timer_ready && (GP_UNPOWERED_SIGNAL_TEST || GP_CONTROLLED_BENCH_ACTUATION);
 #else
     return false;
 #endif
@@ -213,8 +201,9 @@ GpResult GpBsp_MotorConfigure(CommandMapConfig *mapping, MotorDriverConfig *driv
         GP_THROTTLE_CAP_PM, GP_STEP_PULSE_US, GP_STEP_LOW_US,
         GP_DIR_SETUP_US, GP_ENABLE_SETUP_US, true};
     /* ENA is not wired: no physical enable transaction can be controlled or
-     * verified here. DIR-to-STEP setup remains in the adapter. Only unpowered
-     * signal testing is permitted; electrical readiness is unverified. */
+     * verified here. DIR-to-STEP setup remains in the adapter. Controlled bench
+     * commissioning must establish stable driver power/enable BEFORE arming;
+     * loss of that external condition requires cutoff and a verified startup before rearming. */
     GpMotorHwPort port = {NULL, now_us, raw_off, direction, apply_timers, permitted, NULL};
     if (GpMotorHw_Init(&motor_hw, &config, &port) != GP_OK || !init_timers()) return GP_INVALID;
     timer_ready = true;

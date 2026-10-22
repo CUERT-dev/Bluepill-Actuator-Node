@@ -1,13 +1,20 @@
 option(GP_ENABLE_CAN "Enable bxCAN using approved board timing" OFF)
 option(GP_ENABLE_ACTUATION "Enable PWM/STEP waveform outputs" OFF)
 option(GP_UNPOWERED_SIGNAL_TEST "Signal validation only: motor power MUST be disconnected" OFF)
+option(GP_CONTROLLED_BENCH_ACTUATION "Real dual-axis commissioning candidate with actuation enabled" OFF)
 option(GP_ENABLE_WATCHDOG "Start IWDG with approved reset-safe settings" OFF)
 set(GP_BOARD_APPROVAL_HEADER "" CACHE FILEPATH "Reviewed header containing approved settings")
 if(GP_BOARD_SOURCES)
     message(FATAL_ERROR "GP_BOARD_SOURCES is not supported by the current board; future hardware integrations require a reviewed revision")
 endif()
-if(GP_ENABLE_ACTUATION AND NOT GP_UNPOWERED_SIGNAL_TEST)
-    message(FATAL_ERROR "Powered operation is not supported by the current-board firmware; use the unpowered SignalTest profile")
+if(GP_UNPOWERED_SIGNAL_TEST AND GP_CONTROLLED_BENCH_ACTUATION)
+    message(FATAL_ERROR "Select exactly one output mode: signal validation or controlled bench")
+endif()
+if(GP_ENABLE_ACTUATION AND NOT GP_UNPOWERED_SIGNAL_TEST AND NOT GP_CONTROLLED_BENCH_ACTUATION)
+    message(FATAL_ERROR "Powered outputs require an explicit controlled bench commissioning mode")
+endif()
+if(GP_CONTROLLED_BENCH_ACTUATION AND (NOT GP_ENABLE_ACTUATION OR NOT GP_ENABLE_CAN))
+    message(FATAL_ERROR "Controlled bench actuation requires CAN and waveform outputs")
 endif()
 if(GP_UNPOWERED_SIGNAL_TEST AND (NOT GP_ENABLE_ACTUATION OR NOT GP_ENABLE_CAN OR GP_ENABLE_WATCHDOG))
     message(FATAL_ERROR "Unpowered signal testing requires CAN and waveform outputs, with watchdog OFF")
@@ -37,6 +44,7 @@ target_link_libraries(gp_freertos PUBLIC stm32cubemx)
 add_library(gp_firmware OBJECT
     ${CMAKE_SOURCE_DIR}/App/Src/gp_app.c
     ${CMAKE_SOURCE_DIR}/App/Src/gp_stm32_bsp.c
+    ${CMAKE_SOURCE_DIR}/App/Src/gp_output_shutdown.c
     ${CMAKE_SOURCE_DIR}/App/Src/gp_diag.c
     ${CMAKE_SOURCE_DIR}/App/Src/gp_service.c
 )
@@ -46,6 +54,7 @@ target_compile_definitions(gp_firmware PUBLIC
     GP_ENABLE_CAN=$<BOOL:${GP_ENABLE_CAN}>
     GP_ENABLE_ACTUATION=$<BOOL:${GP_ENABLE_ACTUATION}>
     GP_UNPOWERED_SIGNAL_TEST=$<BOOL:${GP_UNPOWERED_SIGNAL_TEST}>
+    GP_CONTROLLED_BENCH_ACTUATION=$<BOOL:${GP_CONTROLLED_BENCH_ACTUATION}>
     GP_ENABLE_WATCHDOG=$<BOOL:${GP_ENABLE_WATCHDOG}>
     GP_HAS_DECODER=${GP_HAS_DECODER})
 if(GP_BOARD_APPROVAL_HEADER)
@@ -79,15 +88,27 @@ if(NOT GP_ENABLE_CAN AND NOT GP_ENABLE_ACTUATION AND NOT GP_ENABLE_WATCHDOG)
 endif()
 if(NOT GP_ENABLE_ACTUATION)
     list(APPEND profile_check_args --motor-inhibited)
-else()
+elseif(GP_UNPOWERED_SIGNAL_TEST)
     list(APPEND profile_check_args --signal-test)
+else()
+    list(APPEND profile_check_args --bench-actuation)
 endif()
 if(GP_ENABLE_CAN)
     list(APPEND profile_check_args --can-enabled)
 endif()
+set(commissioning_copy_command)
+set(commissioning_manifest_args)
+set(commissioning_hex)
+if(GP_CONTROLLED_BENCH_ACTUATION)
+    set(commissioning_hex "${CMAKE_BINARY_DIR}/CUERT-Bluepill-DualAxis-Commissioning.hex")
+    list(APPEND commissioning_copy_command COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.hex" "${commissioning_hex}")
+    list(APPEND commissioning_manifest_args --commissioning-hex "${commissioning_hex}")
+endif()
 add_custom_target(gp_firmware_artifacts ALL
     COMMAND ${CMAKE_OBJCOPY} -O ihex $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
             ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.hex
+    ${commissioning_copy_command}
     COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check_firmware.py
         --elf $<TARGET_FILE:${CMAKE_PROJECT_NAME}> --nm ${GP_ARM_NM}
@@ -98,9 +119,12 @@ add_custom_target(gp_firmware_artifacts ALL
         --can $<BOOL:${GP_ENABLE_CAN}> --actuation $<BOOL:${GP_ENABLE_ACTUATION}>
         --watchdog $<BOOL:${GP_ENABLE_WATCHDOG}> --decoder ${GP_HAS_DECODER}
         --unpowered-signal-test $<BOOL:${GP_UNPOWERED_SIGNAL_TEST}>
+        --controlled-bench-actuation $<BOOL:${GP_CONTROLLED_BENCH_ACTUATION}>
+        ${commissioning_manifest_args}
         --build-type ${CMAKE_BUILD_TYPE}
     DEPENDS ${CMAKE_PROJECT_NAME}
     BYPRODUCTS ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.hex
+        ${commissioning_hex}
         ${CMAKE_BINARY_DIR}/firmware-manifest.json ${CMAKE_BINARY_DIR}/firmware.size.txt
         ${CMAKE_BINARY_DIR}/SHA.txt
     VERBATIM)

@@ -25,7 +25,7 @@ jobs:
   firmware:
     strategy:
       matrix:
-        profile: [Debug, Release, SafeFlash, CanBench, CanBenchRelease, SignalTest, SignalTestRelease]
+        profile: [Debug, Release, SafeFlash, CanBench, CanBenchRelease, SignalTest, SignalTestRelease, BenchActuation, BenchActuationRelease, Commissioning]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

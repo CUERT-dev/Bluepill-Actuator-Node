@@ -26,8 +26,10 @@ typedef struct {
      * off() cancels it. Board implementations may enforce long (e.g. 200 ms)
      * power/ENA settling without truncating the public 16-bit setup fields.
      * NULL means no electrical-readiness mechanism is implemented, never that
-     * a driver is electrically ready. Current-board SignalTest uses NULL with
-     * motor energy disconnected; powered operation is separately unsupported. */
+     * a driver is electrically ready. SignalTest uses NULL with motor energy
+     * disconnected. A controlled bench must establish stable driver power/ENA
+     * externally before arming. Loss requires cutoff and verified readiness
+     * before a fresh arming sequence. */
     GpResult (*prepare)(void *user);
 } GpMotorHwPort;
 typedef struct {
