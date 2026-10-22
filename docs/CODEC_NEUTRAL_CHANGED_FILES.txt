@@ -1,0 +1,38 @@
+Production CAN codec and independent-neutral follow-up: 17 source/document paths.
+Relative to the workspace at the start of this user request; earlier staged work preserved.
+
+App/Inc/gp_board_config.h
+App/Src/gp_app.c
+cmake/firmware/CMakeLists.txt
+docs/BUILDING.md
+docs/CODEC_NEUTRAL_CHANGED_FILES.txt
+docs/FIRMWARE_INTEGRATION.md
+lib/CMakeLists.txt
+lib/can/src/gp_can_codec.c
+lib/control/include/gp_control.h
+lib/control/src/gp_control.c
+scripts/check_firmware.py
+tests/host/CMakeLists.txt
+tests/host/test_board_gates.py
+tests/host/test_codec_validation.c
+tests/host/test_control.c
+tests/host/test_gp_can_codec.c
+tests/host/test_hardware.c
+
+Generated outputs (ignored by Git):
+build/Debug/{Bluepill-Actuator-Node.elf,.hex,.map,firmware-manifest.json,firmware.size.txt,SHA.txt}
+build/Release/{Bluepill-Actuator-Node.elf,.hex,.map,firmware-manifest.json,firmware.size.txt,SHA.txt}
+build/firmware-artifacts.zip and .sha256
+build/codec-neutral-*.log, build/codec-neutral-analysis/, build/codec-neutral-config/
+build/host/ test executables and Testing/ reports
+
+Unchanged supplied copies:
+lib/can/src/gp_can_codec.c SHA256=261e4e585b055d668464ce96cf2fcd8512427f9f42ff170569c7307e96a898e4
+tests/host/test_gp_can_codec.c SHA256=0dbf322c9b55012011dc52efb316013c9a646cebc3d644f7d9f940bcffc44ca2
+
+Preserved unchanged during this request:
+Core/Inc/gp_types.h (the single canonical revision-10 header)
+Core/Src/command_map.c
+lib/motor_driver/src/motor_driver.c
+App/Src/gp_stm32_bsp.c and Core/Src/stm32f1xx_it.c
+All 36 vendor files recorded in docs/vendor-manifest.json

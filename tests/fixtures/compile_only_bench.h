@@ -1,0 +1,7 @@
+/* SYNTHETIC COMPILE-ONLY: no commissioned hardware or powered image. */
+#include "compile_only_board.h"
+#undef GP_UNPOWERED_SIGNAL_TEST
+#define GP_UNPOWERED_SIGNAL_TEST 0
+#define GP_CONTROLLED_BENCH_ACTUATION 1
+#define GP_BENCH_COMMISSIONING_APPROVED 1
+#define GP_STEERING_EXTERNAL_READY_BEFORE_ARM 1

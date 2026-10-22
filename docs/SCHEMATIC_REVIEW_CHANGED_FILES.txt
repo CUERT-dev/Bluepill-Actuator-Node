@@ -1,0 +1,40 @@
+Final schematic alignment review: 14 affected source/document paths.
+Relative to the start of this request; staged work preserved.
+
+App/Inc/gp_app.h
+App/Inc/gp_board_config.h
+App/Inc/gp_board_port.h
+App/Src/gp_stm32_bsp.c
+Core/Src/main.c
+docs/BUILDING.md
+docs/FINAL_SCHEMATIC_REVIEW.md
+docs/FIRMWARE_INTEGRATION.md
+docs/SCHEMATIC_REVIEW_CHANGED_FILES.txt
+docs/hardware/final_pinout.png
+scripts/check_cubemx_hooks.py
+tests/firmware/test_enabled_syntax.py
+tests/host/test_board_gates.py
+tests/host/test_hardware.c
+
+Purpose by file:
+App/Inc/gp_app.h: Declare the scheduler-start entry point non-returning; no runtime path changed.
+App/Inc/gp_board_config.h: Record final physical pin assignment only; electrical approvals/startup remain disabled.
+App/Inc/gp_board_port.h: Explicit declarations/contracts for real future board callbacks; no implementation.
+App/Src/gp_stm32_bsp.c: Use the board-port header and update final-route comments; adapter logic preserved.
+Core/Src/main.c: Route optional HAL assert_failed to the existing fatal handler in a USER block.
+docs/BUILDING.md: Point to the final schematic review.
+docs/FINAL_SCHEMATIC_REVIEW.md: Wiring/remap/reset audit, shutdown limitations, A-D status and validation.
+docs/FIRMWARE_INTEGRATION.md: Supersede provisional wiring while retaining all electrical blockers.
+docs/SCHEMATIC_REVIEW_CHANGED_FILES.txt: Exact focused-step inventory.
+docs/hardware/final_pinout.png: Unmodified supplied final screenshot.
+scripts/check_cubemx_hooks.py: Require preservation of the HAL assertion hook.
+tests/firmware/test_enabled_syntax.py: Compile main/HAL full-assert branch alongside existing gated paths.
+tests/host/test_board_gates.py: Assert that confirmed wiring still leaves all startup options OFF.
+tests/host/test_hardware.c: Update the existing default-inhibit assertion for final physical pin confirmation.
+
+Generated/ignored outputs refreshed:
+build/Debug/ and build/Release/: ELF, HEX, MAP, memory report, SHA and firmware manifest
+build/host/Testing/ and build/schematic-review-host.log: 102 passing existing cases
+build/schematic-review-*.log, build/schematic-review-analysis/, build/schematic-review-config/
+build/cubemx-check/: isolated genuine CubeMX regeneration
+build/firmware-artifacts.zip and build/firmware-artifacts.zip.sha256
