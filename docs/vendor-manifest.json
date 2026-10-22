@@ -1,0 +1,150 @@
+{
+  "source": "ST STM32Cube_FW_F1_V1.8.7 installed package",
+  "freertos_version": "10.3.1",
+  "files": [
+    {
+      "file": "Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_can.h",
+      "sha256": "b414b24743ba4cd95c44a02056534ed57e54e56410619625c94dce205e13f84a"
+    },
+    {
+      "file": "Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_can.c",
+      "sha256": "9a75c0256402412cdfb83062b2df1542441c2ed7e516631e1701cc7a7b77c7ba"
+    },
+    {
+      "file": "Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim.h",
+      "sha256": "7a3dac99a810297b21b785846927dea4b1a43f854b2bd19e0f6b3af767e4eda9"
+    },
+    {
+      "file": "Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_tim.c",
+      "sha256": "d48299529390beba290db650bdac9851d69b9c127d6f9f7bd3dc9f205c843aaf"
+    },
+    {
+      "file": "Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim_ex.h",
+      "sha256": "21f24eb4e1b8eaeeb50240dbb0c177619f55cd4b12e366ddf4105c269ff628ac"
+    },
+    {
+      "file": "Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_tim_ex.c",
+      "sha256": "5f129af0c70c87e7c960c11cc046864d5d2f3963b4a952526d306a88d3295c0d"
+    },
+    {
+      "file": "Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_iwdg.h",
+      "sha256": "883be5c6a54c902ec982659bfe91641c6d7e92a61526046c8da2c355c1189015"
+    },
+    {
+      "file": "Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_iwdg.c",
+      "sha256": "97bc362abf4af0788139d4c46379a7a595d714cecab22bac4520f557502aa659"
+    },
+    {
+      "file": "Drivers/STM32F1xx_HAL_Driver/STM32CubeF1_LICENSE.txt",
+      "sha256": "d5a162f3eaf2b7b6762f00700017cae5695ebbdce7932fead8316448baafd9c1"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/tasks.c",
+      "sha256": "6f540b927668e4c87a064749c03f6ee0ca7370b9dfae7d9d5e96ebd0fdf12b8d"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/queue.c",
+      "sha256": "4613e2dd8c099ee689ff4fabc1d4979c0c22683a95f3e85283c6ef1b92a32bd8"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/list.c",
+      "sha256": "2c7593ec5c67bcdb371d5c3fda60f240e594dd3a7b60f72947f53e8c01971e24"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/LICENSE",
+      "sha256": "a74efb143c66527cdb7a96461fc4e9652cbd33700bd2a129a0407e31ae03084a"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/readme.txt",
+      "sha256": "394bd817785235fff0fc99407307d590cc96e7ff67bac24fd268be6269bda869"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/st_readme.txt",
+      "sha256": "764f98589fb4c72ea8d3a54ecc5966a97028e5caf50bd8158dfc0aceafdf11f5"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/atomic.h",
+      "sha256": "343ced16833df1aad70972829631136d18727bd687fce6f08264162fc9bf221c"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/croutine.h",
+      "sha256": "ecbc64327844a7f24255314d65c4205d3490e8ace8b5d655c1c9f45725b2d7d6"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/deprecated_definitions.h",
+      "sha256": "dcfd3ab2633029c04037ef35a854db090995fcf938ca33b51199377c36720d47"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/event_groups.h",
+      "sha256": "b97b6b2d7aa918e62434083f76dca08ae73c85fedd021ecc91af1f39838324f7"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOS.h",
+      "sha256": "74c201409e1156806627c233a27adb1f4da62d9e40baae99db5c7ddc7e9aae2f"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOSConfig_template.h",
+      "sha256": "6d76a6f59ac99892241c07897c5bb288a983e7e7b953909599f04b203b14bd89"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/list.h",
+      "sha256": "973915ae18a63c6783fe09bf589798cbccf3baee7dfa4b14f8d1525607af3ab6"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/message_buffer.h",
+      "sha256": "07c912a59ba6af0b6f619f23cc7b58f445596d5ff7f589e9fc564cebbf2530bf"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/mpu_prototypes.h",
+      "sha256": "94ca481a3cb128b2caf847dc570cc82942ee6ffb06710eff09fb0bcbef173848"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/mpu_wrappers.h",
+      "sha256": "5a02b1083a49d9dadd65ac52cd6f21283f24586c939f68c75ce632f60863fd3f"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/portable.h",
+      "sha256": "e3921faf76c89c5bcf068b41b5b806655a0841b68114f9496a56e3a25a5fd84e"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/projdefs.h",
+      "sha256": "f646ef12236991a3b34c170c65aa12d2d0c0310b28e324ace620e1957b7c109e"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/queue.h",
+      "sha256": "c4372fb6b9cd6fb08121c1ac21153bdf3621f92edf2a8381cc631fcef2964fae"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/semphr.h",
+      "sha256": "6d4179c295ec9aadb186744e7618854c5ef10cb9a0f8c27948b343a3f6a129af"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/StackMacros.h",
+      "sha256": "4fe5345c6e09102910b765e0facc05ac12f42ed75eb627767aee59fa5b0df65f"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/stack_macros.h",
+      "sha256": "54ff69e8652c7f1332d1679594d1b2076a1633955d6d46e51b3ab4f99780f6ee"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/stream_buffer.h",
+      "sha256": "13f288307ce0b9182941cecfc261b8281fe0fb0e9156f621c252f96f9de8de07"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/task.h",
+      "sha256": "1d75dff80cdc81720b60eeb4cb825370bd05508feed244d2ee1cf263be51ffd9"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/include/timers.h",
+      "sha256": "bd94103aef9d4dbf18db3296b5c55be524d229bae90aecb01e2b9475b8f02f55"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM3/port.c",
+      "sha256": "7473d722e0875be084392ab464a5b69385e0ebc6b0da4dde14f45581bbe8b600"
+    },
+    {
+      "file": "Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM3/portmacro.h",
+      "sha256": "dac98ce8659eb3dfe7403c030dadc37836f3d722925df71ceb663aec53c40855"
+    }
+  ]
+}

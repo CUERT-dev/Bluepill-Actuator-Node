@@ -1,0 +1,7 @@
+# Keep restored vendor bytes stable on Windows; do not normalize binaries.
+Drivers/**/*.c text eol=lf
+Drivers/**/*.h text eol=lf
+Drivers/**/*.cpp text eol=lf
+Drivers/**/*.txt text eol=lf
+Drivers/**/*.s text eol=lf
+Drivers/**/*.S text eol=lf

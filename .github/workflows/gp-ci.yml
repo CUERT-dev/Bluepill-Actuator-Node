@@ -23,6 +23,9 @@ env:
 
 jobs:
   firmware:
+    strategy:
+      matrix:
+        profile: [Debug, Release, SafeFlash, CanBench, CanBenchRelease, SignalTest, SignalTestRelease, BenchActuation, BenchActuationRelease, Commissioning]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -46,10 +49,13 @@ jobs:
           cppcheck --version
 
       - name: Configure
-        run: cmake --preset Debug
+        run: cmake --preset ${{ matrix.profile }}
 
       - name: Build
-        run: cmake --build --preset Debug 2>&1 | tee build.log
+        run: cmake --build --preset ${{ matrix.profile }} 2>&1 | tee build.log
+
+      - name: Compile gated hardware branches without linking an enabled image
+        run: cmake --build build/${{ matrix.profile }} --target gp_check_enabled_syntax
 
       - name: Static analysis report
         continue-on-error: true
@@ -68,6 +74,8 @@ jobs:
         run: |
           mkdir -p out
           cp build.log out/
+          cp build/${{ matrix.profile }}/firmware-manifest.json build/${{ matrix.profile }}/firmware.size.txt out/
+          cp build/${{ matrix.profile }}/SHA.txt out/firmware-SHA.txt
           find build -name '*.elf' -exec cp {} out/ \;
           find build -name '*.map' -exec cp {} out/ \;
           shopt -s nullglob
@@ -89,7 +97,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ env.CANDIDATE_SHA }}
+          name: firmware-${{ matrix.profile }}-${{ env.CANDIDATE_SHA }}
           path: out/
           if-no-files-found: error
 
