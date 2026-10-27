@@ -39,9 +39,13 @@ flowchart TD
 | Context | Responsibility / integration entry |
 | --- | --- |
 | CAN RX interrupt | Capture a frame and IDE/RTR metadata, call `GpControl_CaptureIsr`, report hardware FIFO overrun through `GpControl_LatchFault`. No decoding, mapping, motor write, Stop or logging. |
-| CAN RX task, next-highest application priority | Call `GpCanRx_Run` when notified. It handles at most the configured frame budget, preserving accepted event order. |
-| Motor task, highest application priority | Own `GpMotorTask`, initialize map/driver, call `GpMotor_Run` periodically and on notifications, and process explicit local recovery requests through `GpMotor_Recover`. This is the only software owner of motor-driver operations. |
-| Diagnostics, low priority if later added | Consume snapshots published by the motor task. Do not read its mutable state or write outputs. No diagnostic task or logger is implemented here. |
+| CAN RX task, highest application priority (3) | Call `GpCanRx_Run` when notified. It handles at most the configured frame budget, preserving accepted event order. Block for one tick on remaining raw backlog or urgent reasons so the motor supervisor can run. |
+| Motor task, next-highest application priority (2) | Own `GpMotorTask`, initialize map/driver, call `GpMotor_Run` periodically and on notifications, and process explicit local recovery requests through `GpMotor_Recover`. This is the only software owner of motor-driver operations. |
+| Diagnostics, low priority (1) | Read coherent copies through `GpApp_GetStatus`, format periodic CAN/output reports and queue bytes for the USART interrupt. Never write motor outputs. |
+
+The corrected ordering prevents a ready motor deadline from preempting ordinary
+CAN decoding and faulting on that undecoded frame. Backlog and final-commit
+checks remain fail-closed; see [ACTUATION_DIAGNOSIS.md](ACTUATION_DIAGNOSIS.md).
 
 There is no STOP task. Notification is a wakeup, not a command mailbox. The
 sticky reason mask remains authoritative even if notifications coalesce or a
@@ -217,10 +221,12 @@ down with a backlog fault. RX re-notifies itself when its bounded work leaves
 raw frames; it batches ordinary motor notifications at the end of that work,
 but not urgent STOP/overflow notifications.
 
-This policy deliberately favours inhibition over availability. If motor's
-deadline preempts an unfinished decode, it faults rather than guessing whether
-that frame is STOP. Real bus/load measurements must establish that the chosen
-budgets and priorities provide acceptable availability.
+An ordinary receive race now temporarily inhibits both outputs while preserving
+the packet for decoding. It latches a backlog fault only if receive waiting
+persists beyond the stage budget, or the event budget is exhausted. Existing
+overflow/age/timeout checks remain. A pending driver's already-inactive setup
+phase survives the wait. See [STEERING_DIAGNOSIS.md](STEERING_DIAGNOSIS.md).
+Real bus/load measurements must establish acceptable timing and availability.
 
 Raw queue overflow, accepted-event overflow, or a hardware FIFO overrun must
 latch independently of queue space. If a full raw queue drops STOP itself,

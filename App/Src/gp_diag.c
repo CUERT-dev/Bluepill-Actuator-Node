@@ -12,7 +12,7 @@
  * Diagnostic task priority 1, fixed 16 RX byte budget per 1 ms wake.
  * TX queue drops whole responses when busy. It never delays motor/CAN tasks. */
 #define RX_SIZE 64u
-#define TX_SIZE 768u
+#define TX_SIZE 1536u
 static volatile uint16_t rx_head, rx_tail, tx_head, tx_tail;
 static volatile uint32_t rx_errors, tx_dropped;
 static uint8_t rx[RX_SIZE], tx[TX_SIZE];
@@ -71,6 +71,10 @@ static void status(void)
         (unsigned long)s.can_btr, (unsigned long)s.can_esr,
         (unsigned long)rx_errors, (unsigned long)tx_dropped);
     if (n > 0 && (size_t)n < sizeof(response)) send_text(response);
+    n = GpDiag_FormatMotion(response, sizeof(response), &s);
+    if (n > 0 && (size_t)n < sizeof(response)) send_text(response);
+    n = GpDiag_FormatRx(response, sizeof(response), &s);
+    if (n > 0 && (size_t)n < sizeof(response)) send_text(response);
 }
 static void entry(void *unused)
 {
@@ -82,7 +86,25 @@ static void entry(void *unused)
     send_text("COMMISSIONING CANDIDATE: actuation enabled; provisional settings; no safety/readiness inputs\r\n");
 #endif
     send_text("CUERT service 115200 8N1: status / recover + newline; no motor commands\r\n");
-    send_text("BLUE FW can-link-v1: CAN TX=PB9 RX=PB8; command ID=0x105 DLC=8; automatic RX reports every 1s\r\n");
+#if GP_DIRECT_COMMANDS
+    send_text("DIRECT COMMANDS: no ARM/DEADMAN or neutral arming; first valid demand can move outputs; STOP/timeout/fault shutdown retained\r\n");
+#endif
+    send_text("BLUE FW actuation-diag-v5: CAN TX=PB9 RX=PB8; command ID=0x105 DLC=8; reports every 1s\r\n");
+#if GP_DIRECT_COMMANDS
+    send_text("DIRECT RESUME: fresh valid CAN resumes after timeout/queue-age/backlog/timing stop\r\n");
+#endif
+    int startup = snprintf(response, sizeof(response),
+        "PROFILE can=%u actuation=%u signal=%u bench=%u wd=%u; "
+        "t2/t3=PSC,ARR,CCR,CR1,CCER; pa/pb=CRL,IDR,ODR\r\n",
+        GP_ENABLE_CAN, GP_ENABLE_ACTUATION, GP_UNPOWERED_SIGNAL_TEST,
+        GP_CONTROLLED_BENCH_ACTUATION, GP_ENABLE_WATCHDOG);
+    if (startup > 0 && (size_t)startup < sizeof(response)) send_text(response);
+#if GP_ENABLE_ACTUATION
+    startup = snprintf(response, sizeof(response),
+        "STEP full_scale_hz=%lu slew_pm_s=%lu\r\n",
+        (unsigned long)GP_MAX_STEP_HZ, (unsigned long)GP_STEERING_SLEW_PM_S);
+    if (startup > 0 && (size_t)startup < sizeof(response)) send_text(response);
+#endif
 #if GP_ENABLE_CAN
     send_text("BLUE CAN configured ON at 500000 bit/s; inspect ready=1 and rising rx/decode\r\n");
 #else
@@ -112,7 +134,11 @@ static void entry(void *unused)
             if (command == GP_SERVICE_STATUS) status();
             else if (command == GP_SERVICE_RECOVER) {
                 GpApp_RequestRecovery();
+#if GP_DIRECT_COMMANDS
+                send_text("recovery queued; inspect status; after recovery next fresh valid command can drive outputs\r\n");
+#else
                 send_text("recovery queued; inspect status; fresh neutral/ARM edge still required\r\n");
+#endif
             } else if (command == GP_SERVICE_BAD_COMMAND) send_text("ERR command\r\n");
         }
         uint32_t now = HAL_GetTick();
@@ -129,6 +155,10 @@ static void entry(void *unused)
                 (int)s.decoded_command.steering_pm, (unsigned)s.decoded_command.flags,
                 (unsigned long)(now - s.decoded_ms), (unsigned long)s.can_esr,
                 (unsigned long)s.can_btr, (unsigned long)s.faults, s.motor_ready);
+            if (n > 0 && (size_t)n < sizeof(response)) send_text(response);
+            n = GpDiag_FormatMotion(response, sizeof(response), &s);
+            if (n > 0 && (size_t)n < sizeof(response)) send_text(response);
+            n = GpDiag_FormatRx(response, sizeof(response), &s);
             if (n > 0 && (size_t)n < sizeof(response)) send_text(response);
             last_report = now;
         }

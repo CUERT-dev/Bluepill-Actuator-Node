@@ -122,10 +122,11 @@ GpResult CommandMap_Init(CommandMap *map,
     return GP_OK;
 }
 
-GpResult CommandMap_Update(CommandMap *map,
+static GpResult update(CommandMap *map,
                            const TargetSample *command,
                            uint32_t dt_ms,
                            bool enabled,
+                           bool require_operator,
                            MotorOutput *out)
 {
     int32_t throttle_target;
@@ -173,7 +174,7 @@ GpResult CommandMap_Update(CommandMap *map,
     }
 
     /* Arming and deadman are motion permissions, independent of validity. */
-    if ((command->flags & (GP_FLAG_ARM | GP_FLAG_DEADMAN)) !=
+    if (require_operator && (command->flags & (GP_FLAG_ARM | GP_FLAG_DEADMAN)) !=
         (GP_FLAG_ARM | GP_FLAG_DEADMAN))
     {
         clear_history(map);
@@ -221,6 +222,18 @@ GpResult CommandMap_Update(CommandMap *map,
     *out = map->previous;
 
     return GP_OK;
+}
+
+GpResult CommandMap_Update(CommandMap *map, const TargetSample *command,
+                           uint32_t dt_ms, bool enabled, MotorOutput *out)
+{
+    return update(map, command, dt_ms, enabled, true, out);
+}
+
+GpResult CommandMap_UpdateDirect(CommandMap *map, const TargetSample *command,
+                                 uint32_t dt_ms, bool enabled, MotorOutput *out)
+{
+    return update(map, command, dt_ms, enabled, false, out);
 }
 
 void CommandMap_Reset(CommandMap *map)

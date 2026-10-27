@@ -3,6 +3,10 @@ option(GP_ENABLE_ACTUATION "Enable PWM/STEP waveform outputs" OFF)
 option(GP_UNPOWERED_SIGNAL_TEST "Signal validation only: motor power MUST be disconnected" OFF)
 option(GP_CONTROLLED_BENCH_ACTUATION "Real dual-axis commissioning candidate with actuation enabled" OFF)
 option(GP_ENABLE_WATCHDOG "Start IWDG with approved reset-safe settings" OFF)
+option(GP_DIRECT_COMMANDS "Apply valid commands without operator ARM/DEADMAN or neutral arming" OFF)
+if(GP_DIRECT_COMMANDS AND (NOT GP_ENABLE_CAN OR NOT GP_ENABLE_ACTUATION))
+    message(FATAL_ERROR "Direct commands require CAN and actuation enabled")
+endif()
 set(GP_BOARD_APPROVAL_HEADER "" CACHE FILEPATH "Reviewed header containing approved settings")
 if(GP_BOARD_SOURCES)
     message(FATAL_ERROR "GP_BOARD_SOURCES is not supported by the current board; future hardware integrations require a reviewed revision")
@@ -46,6 +50,7 @@ add_library(gp_firmware OBJECT
     ${CMAKE_SOURCE_DIR}/App/Src/gp_stm32_bsp.c
     ${CMAKE_SOURCE_DIR}/App/Src/gp_output_shutdown.c
     ${CMAKE_SOURCE_DIR}/App/Src/gp_diag.c
+    ${CMAKE_SOURCE_DIR}/App/Src/gp_diag_format.c
     ${CMAKE_SOURCE_DIR}/App/Src/gp_service.c
 )
 target_include_directories(gp_firmware PUBLIC ${CMAKE_SOURCE_DIR}/App/Inc)
@@ -56,6 +61,7 @@ target_compile_definitions(gp_firmware PUBLIC
     GP_UNPOWERED_SIGNAL_TEST=$<BOOL:${GP_UNPOWERED_SIGNAL_TEST}>
     GP_CONTROLLED_BENCH_ACTUATION=$<BOOL:${GP_CONTROLLED_BENCH_ACTUATION}>
     GP_ENABLE_WATCHDOG=$<BOOL:${GP_ENABLE_WATCHDOG}>
+    GP_DIRECT_COMMANDS=$<BOOL:${GP_DIRECT_COMMANDS}>
     GP_HAS_DECODER=${GP_HAS_DECODER})
 if(GP_BOARD_APPROVAL_HEADER)
     file(TO_CMAKE_PATH "${GP_BOARD_APPROVAL_HEADER}" approved_header)
@@ -120,6 +126,7 @@ add_custom_target(gp_firmware_artifacts ALL
         --watchdog $<BOOL:${GP_ENABLE_WATCHDOG}> --decoder ${GP_HAS_DECODER}
         --unpowered-signal-test $<BOOL:${GP_UNPOWERED_SIGNAL_TEST}>
         --controlled-bench-actuation $<BOOL:${GP_CONTROLLED_BENCH_ACTUATION}>
+        --direct-commands $<BOOL:${GP_DIRECT_COMMANDS}>
         ${commissioning_manifest_args}
         --build-type ${CMAKE_BUILD_TYPE}
     DEPENDS ${CMAKE_PROJECT_NAME}

@@ -9,6 +9,9 @@ _Static_assert(GP_CAN_IRQ_PRIORITY >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORI
                "CAN FromISR calls require a legal syscall interrupt priority");
 _Static_assert(GP_CAN_IRQ_PRIORITY < (1u << configPRIO_BITS), "CAN priority out of range");
 _Static_assert(configTICK_RATE_HZ == 1000u, "HAL/RTOS tick bridge requires 1 kHz");
+_Static_assert(GP_CAN_TASK_PRIORITY > GP_MOTOR_TASK_PRIORITY &&
+               GP_CAN_TASK_PRIORITY < configMAX_PRIORITIES,
+               "CAN decoding must precede a ready motor deadline");
 
 static GpControl channels;
 static GpCanRxTask can_rx;
@@ -21,6 +24,8 @@ static TaskHandle_t motor_handle, can_handle;
 static volatile bool recovery_requested;
 static uint32_t recovery_count;
 static GpResult recovery_result = GP_INVALID;
+static uint32_t motor_runs, motor_run_ms;
+static GpResult motor_result;
 
 static uint32_t lock(void *user, bool isr)
 {
@@ -77,7 +82,9 @@ static void motor_entry(void *unused)
         bool recover = recovery_requested;
         recovery_requested = false;
         unlock(NULL, false, saved);
-        (void)GpMotor_Run(&motor);
+        motor_result = GpMotor_Run(&motor);
+        ++motor_runs;
+        motor_run_ms = HAL_GetTick();
         if (recover) {
             ++recovery_count;
             recovery_result = GP_INVALID;
@@ -108,7 +115,11 @@ static void can_entry(void *unused)
         uint32_t saved = lock(NULL, false);
         watchdog.can_ms = HAL_GetTick();
         watchdog.can_seen = true;
+        bool yield_to_motor = channels.urgent_reasons != 0 || channels.raw_count != 0;
         unlock(NULL, false, saved);
+        /* One bounded RX batch before letting the supervisor handle overload
+         * or faults. taskYIELD cannot run a lower-priority task. */
+        if (yield_to_motor) vTaskDelay(pdMS_TO_TICKS(1));
         /* A bounded health wake also detects a stalled worker without traffic. */
         (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(GP_MOTOR_PERIOD_MS));
     }
@@ -120,14 +131,15 @@ void GpApp_Create(void)
     config.motor_period_ms = GP_MOTOR_PERIOD_MS;
     config.command_timeout_ms = GP_COMMAND_TIMEOUT_MS;
     config.stage_budget_ms = GP_STAGE_BUDGET_MS;
+    config.direct_commands = GP_DIRECT_COMMANDS != 0;
     GpControlPort port = {NULL, lock, unlock, now_ms, notify,
                           GpBsp_ControlInputs, GpBsp_DiscardRx};
     if (GpControl_Init(&channels, &config, &port) != GP_OK) GpApp_Fatal(1);
     if (GpCanRx_Init(&can_rx, &channels, GP_DecodeCan) != GP_OK) GpApp_Fatal(2);
     can_handle = xTaskCreateStatic(can_entry, "CAN-RX", GP_CAN_STACK_WORDS,
-                                   NULL, 2, can_stack, &can_tcb);
+                                   NULL, GP_CAN_TASK_PRIORITY, can_stack, &can_tcb);
     motor_handle = xTaskCreateStatic(motor_entry, "Motor", GP_MOTOR_STACK_WORDS,
-                                     NULL, 3, motor_stack, &motor_tcb);
+                                     NULL, GP_MOTOR_TASK_PRIORITY, motor_stack, &motor_tcb);
     if (!can_handle || !motor_handle) GpApp_Fatal(3);
     GpDiag_Start();
     vTaskStartScheduler();
@@ -168,6 +180,35 @@ void GpApp_GetStatus(GpDiagStatus *out)
         .can_btr = gp_boot_status.can_ready ? CAN1->BTR : 0,
         .can_esr = gp_boot_status.can_ready ? CAN1->ESR : 0
     };
+    out->last_rx_id = channels.last_rx_id;
+    out->direct_commands = channels.config.direct_commands;
+    out->last_rx_dlc = channels.last_rx_dlc;
+    for (unsigned i = 0; i < sizeof(out->last_rx_data); ++i)
+        out->last_rx_data[i] = channels.last_rx_data[i];
+    out->last_rx_ms = channels.last_rx_ms;
+    out->last_rx_extended = channels.last_rx_extended;
+    out->last_rx_remote = channels.last_rx_remote;
+    out->motor_runs = motor_runs;
+    out->motor_ms = motor_run_ms;
+    out->motor_result = motor_result;
+    out->requested_ms = motor.latest_received_ms;
+    out->have_requested = motor.have_latest;
+    out->pending = motor.output_pending;
+    out->rx_waiting = motor.rx_waiting;
+    out->rx_wait_count = motor.rx_wait_count;
+    out->shutdown_reason = motor.last_shutdown_reasons;
+    out->shutdown_count = motor.shutdown_count;
+    out->tim2 = (GpDiagTimer){TIM2->PSC, TIM2->ARR, TIM2->CCR2, TIM2->CR1, TIM2->CCER};
+    out->tim3 = (GpDiagTimer){TIM3->PSC, TIM3->ARR, TIM3->CCR1, TIM3->CR1, TIM3->CCER};
+    out->timer_clock_hz = HAL_RCC_GetPCLK1Freq();
+    if (RCC->CFGR & RCC_CFGR_PPRE1) out->timer_clock_hz *= 2u;
+    out->gpioa_crl = GPIOA->CRL;
+    out->gpiob_crl = GPIOB->CRL;
+    out->gpioa_idr = GPIOA->IDR;
+    out->gpiob_idr = GPIOB->IDR;
+    out->gpioa_odr = GPIOA->ODR;
+    out->gpiob_odr = GPIOB->ODR;
+    out->mapr = AFIO->MAPR;
     unlock(NULL, false, saved);
 }
 void GpApp_KernelTick(void)

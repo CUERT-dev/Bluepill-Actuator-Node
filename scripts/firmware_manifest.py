@@ -12,6 +12,7 @@ for name in ('elf', 'source', 'compiler', 'size', 'can', 'actuation', 'watchdog'
 parser.add_argument('--unpowered-signal-test', default='0')
 parser.add_argument('--controlled-bench-actuation', default='0')
 parser.add_argument('--commissioning-hex')
+parser.add_argument('--direct-commands', default='0')
 args = parser.parse_args()
 root, elf = Path(args.source), Path(args.elf)
 
@@ -62,6 +63,7 @@ manifest = {
     'features': {name: bool(int(getattr(args, name))) for name in ('can', 'actuation', 'watchdog', 'decoder')},
     'unpowered_signal_test': bool(int(args.unpowered_signal_test)),
     'controlled_bench_actuation': bool(int(args.controlled_bench_actuation)),
+    'direct_commands': bool(int(args.direct_commands)),
     'powered_operation_approved': False,
     'physically_verified': False,
     'commissioning_candidate': bool(int(args.controlled_bench_actuation)),

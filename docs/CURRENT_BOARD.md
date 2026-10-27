@@ -16,9 +16,16 @@ observe driver power/enable readiness.
 |---|---|---|---|---|
 | Debug, SafeFlash | Off | Inhibited, analog GPIO | 115200 8N1 | Off |
 | Release | Real 500 kbit/s | Real dual-axis actuation; software arming required | Same, with commissioning warning | Off |
-| CanBench, CanBenchRelease | Real 500 kbit/s | Inhibited | Same | Off |
+| CanBench | Real 500 kbit/s | Inhibited | Same | Off |
+| CanBenchRelease | Real 500 kbit/s | Full-range direct commands; no operator arming required | Same, with DIRECT COMMANDS warning | Off |
 | SignalTest, SignalTestRelease | Real 500 kbit/s | Real TIM2/TIM3 adapter; software arming required | Same, with unpowered-test startup warning | Off |
 | BenchActuation, BenchActuationRelease, Commissioning | Real 500 kbit/s | Real dual-axis actuation; software arming required | Same, with commissioning warning | Off |
+
+CanBenchRelease now reuses BenchActuationRelease; see
+[DIRECT_COMMANDS.md](DIRECT_COMMANDS.md) for its explicit direct-command override and current HEX.
+See
+[CANBENCH_RELEASE_ACTUATION.md](CANBENCH_RELEASE_ACTUATION.md) for the change,
+preserved slew rates and unresolved mechanical steering-rate limit.
 
 All ten presets compile and **link** real firmware. SignalTest is a new active
 waveform image for scope/logic-analyzer validation with motor energy physically

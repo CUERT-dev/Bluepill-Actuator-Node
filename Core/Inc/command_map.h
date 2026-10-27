@@ -52,4 +52,9 @@ GpResult CommandMap_Update(
  */
 void CommandMap_Reset(CommandMap *map);
 
+/* Explicit direct-command policy. Still validates VALID, ranges, timing and
+ * enabled; preserves caps/slew. Does not modify or fabricate received flags. */
+GpResult CommandMap_UpdateDirect(CommandMap *, const TargetSample *, uint32_t,
+                                 bool enabled, MotorOutput *);
+
 #endif /* COMMAND_MAP_H */

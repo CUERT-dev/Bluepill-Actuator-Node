@@ -77,6 +77,7 @@ typedef struct {
 typedef struct {
     uint32_t motor_period_ms, command_timeout_ms, stage_budget_ms;
     uint16_t raw_capacity, event_capacity, rx_budget, motor_event_budget;
+    bool direct_commands; /* Explicit opt-in: ignore ARM/DEADMAN and neutral arming. */
 } GpControlConfig;
 
 typedef struct {
@@ -104,6 +105,11 @@ typedef struct {
     uint32_t captured, raw_dropped, decoded, rejected, stale, published, barred;
     TargetSample last_decoded;
     uint32_t last_decoded_ms;
+    uint16_t last_rx_id;
+    uint8_t last_rx_dlc;
+    uint8_t last_rx_data[8];
+    uint32_t last_rx_ms;
+    bool last_rx_extended, last_rx_remote;
 } GpControl;
 
 /* Production GP_DecodeCan from lib/can is passed directly by the app. GP_OK means
@@ -132,8 +138,10 @@ typedef struct {
     MotorOutput applied;
     uint32_t latest_received_ms, last_update_ms;
     uint32_t latched_faults, last_shutdown_reasons, fault_history, shutdown_count;
+    uint32_t rx_wait_since_ms, rx_wait_count;
     GpSafetyState state;
     bool have_latest, shutdown_executed, initialized, output_pending;
+    bool rx_waiting;
     void (*inhibited_off)(void *);
     void *inhibited_user;
 } GpMotorTask;
@@ -158,7 +166,10 @@ size_t GpCanRx_Run(GpCanRxTask *);
  * Run on every notification AND on fixed periodic deadlines. GP_PENDING is
  * normal. Run rechecks faults/freshness even before the next output deadline.
  * Recover is an explicit local acknowledgement, never a CAN arm command.
- * It flushes old candidates again; a new neutral/ARM edge is still required. */
+ * It flushes old candidates again. Normal mode requires a new neutral/ARM edge;
+ * Direct mode needs no local acknowledgement after timeout, queue-age, backlog
+ * or update-timing shutdown: a new fresh valid command can resume. Hardware,
+ * overflow, dependency and output faults still require explicit recovery. */
 GpResult GpMotor_Init(GpMotorTask *, GpControl *,
                       const CommandMapConfig *, const MotorDriverConfig *);
 /* Run the real fault supervisor with no motor parameters or driver initialized.

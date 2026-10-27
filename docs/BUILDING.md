@@ -1,3 +1,19 @@
+> **Steering follow-up:** [STEERING_DIAGNOSIS.md](STEERING_DIAGNOSIS.md) documents
+> the 0x400 race fix and the additional `SteeringBenchRelease` 1000-pulse/s HEX.
+>
+> **Current CanBenchRelease policy:** [DIRECT_COMMANDS.md](DIRECT_COMMANDS.md)
+> documents direct actuation without ARM/DEADMAN or neutral arming, retained
+> STOP/timeout/fault shutdown, automatic fresh-command resume after transient
+> stream/timing stops, and the current HEX. Nonzero startup demand can act.
+>
+> **CanBenchRelease now enables actuation:** [CANBENCH_RELEASE_ACTUATION.md](CANBENCH_RELEASE_ACTUATION.md)
+> documents preserved CAN, full command range, retained slew and the new HEX.
+> CanBench remains receive-only.
+>
+> **Non-responsive actuator investigation:** [ACTUATION_DIAGNOSIS.md](ACTUATION_DIAGNOSIS.md)
+> records the task-ordering fix, expanded output diagnostics, updated artifacts
+> and step-by-step hardware isolation procedure.
+>
 > **Current commissioning artifact:** [COMMISSIONING_CANDIDATE.md](COMMISSIONING_CANDIDATE.md)
 > provides the real dual-axis actuation-enabled HEX, build/flash instructions and
 > provisional settings. All ten profiles link; physical verification is pending.

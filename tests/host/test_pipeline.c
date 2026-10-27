@@ -3,7 +3,11 @@
  * These values are test fixtures, never board approvals or firmware providers. */
 #include "gp_control.h"
 #include "gp_hardware.h"
+#ifdef GP_TEST_STEERING_BENCH
+#include "../../App/Profiles/steering_bench.h"
+#else
 #include "../../App/Profiles/commissioning_parameters.h"
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -172,6 +176,34 @@ static void reversal_failure(void)
     CHECK(command(&f, 213, 500, -30, FLAGS) == GP_OK);
     CHECK(f.motor.state == GP_WAIT_FOR_NEUTRAL && !f.pwm.compare && !f.step.compare);
 }
+static void rx_setup_progress(void)
+{
+    Fixture f; init(&f); arm(&f); f.prepare_delay = 200;
+    f.motor.map.config.throttle_slew_pm_s = 1;
+    f.motor.map.config.steering_slew_pm_s = 1;
+    bool ran = false;
+    for (uint32_t t = 20; t <= 3000; t += 20) {
+        f.ms = t;
+        TargetSample sample = {++f.sequence, 500, 500, FLAGS};
+        GpCanFrame frame;
+        CHECK(GP_EncodeCan(&sample, &frame) == GP_OK);
+        CHECK(GpControl_CaptureIsr(&f.control, &frame, false, false) == GP_OK);
+        CHECK(GpMotor_Run(&f.motor) == GP_PENDING);
+        CHECK(!f.pwm.compare && !f.step.compare);
+        CHECK(GpCanRx_Run(&f.rx) == 1);
+        f.ms = t + 1;
+        CHECK(GpMotor_Run(&f.motor) == GP_OK);
+        f.ms = t + 11;
+        GpResult r = GpMotor_Run(&f.motor);
+        CHECK(r == GP_OK || r == GP_PENDING);
+        ran |= f.step.compare != 0;
+        CHECK(!f.motor.latched_faults);
+    }
+    CHECK(ran); /* CAN races must not continually cancel steering setup. */
+    CHECK(command(&f, 3012, 0, 0, 0) == GP_INVALID);
+    CHECK(!f.hw.pending && !f.hw.preparing && !f.step.compare && !f.pwm.compare);
+}
+
 static void readiness_slew(void)
 {
     Fixture f; init(&f); arm(&f); f.prepare_delay = 200;
@@ -223,9 +255,11 @@ static void pending_fractional_neutral(void)
 }
 /* Actual candidate settings through the real production command pipeline.
  * Only registers/time are simulated; no fixture limits replace the header. */
-static void commissioning_range(void)
+static void commissioning_range(bool direct)
 {
     Fixture f; init(&f);
+    f.control.config.direct_commands = direct;
+    uint8_t demand_flags = direct ? GP_FLAG_VALID : FLAGS;
     GpMotorHwConfig hw = {72000000, GP_THROTTLE_PWM_HZ, GP_MAX_STEP_HZ,
         GP_THROTTLE_CAP_PM, GP_STEP_PULSE_US, GP_STEP_LOW_US,
         GP_DIR_SETUP_US, GP_ENABLE_SETUP_US, true};
@@ -237,28 +271,38 @@ static void commissioning_range(void)
         GP_THROTTLE_CAP_PM, GP_MAX_STEP_HZ, GP_STEP_PULSE_US,
         GP_DIR_SETUP_US, GP_ENABLE_SETUP_US, GP_REVERSAL_DEADTIME_MS};
     CHECK(GpMotor_Init(&f.motor, &f.control, &map, &driver) == GP_OK);
-    arm(&f);
+    if (direct) {
+        /* Nonzero first command: no neutral, ARM or DEADMAN ever supplied. */
+        CHECK(command(&f, 1, 1000, 1000, demand_flags) == GP_OK);
+        CHECK(f.motor.state == GP_ARMED && f.motor.latest.flags == GP_FLAG_VALID);
+    } else arm(&f);
     uint32_t t;
     for (t = 11; t <= 10101; t += 10) {
-        GpResult r = command(&f, t, 1000, 1000, FLAGS);
+        GpResult r = command(&f, t, 1000, 1000, demand_flags);
         CHECK(r == GP_OK || r == GP_PENDING);
     }
     CHECK(f.motor.applied.throttle_duty_pm == 1000);
     CHECK(f.motor.applied.steering_rate_pm == 1000 && f.direction == 1);
     CHECK(f.pwm.prescaler == 0 && f.pwm.autoreload == 3599 && f.pwm.compare == 3600);
+#ifdef GP_TEST_STEERING_BENCH
+    CHECK(GP_MAX_STEP_HZ == 1000 && GP_STEERING_SLEW_PM_S == 200);
+    CHECK(f.step.prescaler == 1 && f.step.autoreload == 35999 && f.step.compare == 108);
+#else
     CHECK(f.step.prescaler == 0 && f.step.autoreload == 432 && f.step.compare == 216);
-    CHECK(command(&f, t, 0, 1000, FLAGS) == GP_OK); t += 10;
-    CHECK(!f.pwm.compare && f.step.compare == 216); /* independent throttle neutral */
+#endif
+    GpTimerPlan full_step = f.step;
+    CHECK(command(&f, t, 0, 1000, demand_flags) == GP_OK); t += 10;
+    CHECK(!f.pwm.compare && f.step.compare == full_step.compare); /* independent throttle neutral */
     /* Allow deceleration to zero, reversal setup, then the existing full ramp. */
     for (uint32_t end = t + 15100; t <= end; t += 10) {
-        GpResult r = command(&f, t, 1000, -1000, FLAGS);
+        GpResult r = command(&f, t, 1000, -1000, demand_flags);
         CHECK(r == GP_OK || r == GP_PENDING);
         if (r == GP_PENDING) CHECK(!f.pwm.compare && !f.step.compare);
     }
     CHECK(f.motor.applied.throttle_duty_pm == 1000);
     CHECK(f.motor.applied.steering_rate_pm == -1000 && f.direction == -1);
-    CHECK(f.pwm.compare == 3600 && f.step.compare == 216);
-    CHECK(command(&f, t, 1000, 0, FLAGS) == GP_OK); t += 10;
+    CHECK(f.pwm.compare == 3600 && f.step.compare == full_step.compare);
+    CHECK(command(&f, t, 1000, 0, demand_flags) == GP_OK); t += 10;
     CHECK(f.pwm.compare == 3600 && !f.step.compare); /* independent steering neutral */
     CHECK(command(&f, t, 0, 0, 0) == GP_INVALID);
     CHECK(!f.pwm.compare && !f.step.compare && f.motor.state == GP_WAIT_FOR_NEUTRAL);
@@ -277,13 +321,41 @@ static void commissioning_range(void)
     GpTimerPlan invalid;
     CHECK(GpTimer_StepPlan(72000000, 200000, GP_STEP_PULSE_US, GP_STEP_LOW_US,
                            &invalid) == GP_INVALID); /* 3+3 us cannot fit at 200 kHz */
+    if (direct) {
+        /* Steering alone, flags=VALID only, through real driver/timer planning.
+         * A lost stream stops motion; a new steering frame restarts it without
+         * recover, neutral, ARM, DEADMAN or any throttle demand. */
+        t += 10;
+        for (uint32_t end = t + 1000; t <= end; t += 10) {
+            GpResult r = command(&f, t, 0, 500, GP_FLAG_VALID);
+            CHECK(r == GP_OK || r == GP_PENDING);
+            CHECK(!f.pwm.compare);
+        }
+        CHECK(f.motor.latest.steering_pm == 500 && f.step.compare && f.direction == 1);
+        f.ms = t + 200;
+        CHECK(GpMotor_Run(&f.motor) == GP_INVALID);
+        CHECK(f.motor.latched_faults & GP_FAULT_TIMEOUT);
+        CHECK(!f.pwm.compare && !f.step.compare);
+        t = f.ms + 1;
+        CHECK(command(&f, t, 0, -500, GP_FLAG_VALID) == GP_OK);
+        CHECK(f.motor.latest.steering_pm == -500 && !f.motor.latched_faults);
+        t += 10;
+        for (uint32_t end = t + 1000; t <= end; t += 10) {
+            GpResult r = command(&f, t, 0, -500, GP_FLAG_VALID);
+            CHECK(r == GP_OK || r == GP_PENDING);
+            CHECK(!f.pwm.compare);
+        }
+        CHECK(f.motor.applied.steering_rate_pm < 0 && f.step.compare && f.direction == -1);
+    }
 }
 int main(int argc, char **argv)
 {
     CHECK(argc == 2);
-    if (!strcmp(argv[1], "commissioning_range")) commissioning_range();
+    if (!strcmp(argv[1], "commissioning_range")) commissioning_range(false);
+    else if (!strcmp(argv[1], "direct_range")) commissioning_range(true);
     else if (!strcmp(argv[1], "axes")) axes();
     else if (!strcmp(argv[1], "readiness_stop")) readiness_stop();
+    else if (!strcmp(argv[1], "rx_setup_progress")) rx_setup_progress();
     else if (!strcmp(argv[1], "reversal_failure")) reversal_failure();
     else if (!strcmp(argv[1], "readiness_slew")) readiness_slew();
     else if (!strcmp(argv[1], "readiness_fractional")) readiness_fractional();

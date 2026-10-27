@@ -22,7 +22,9 @@ command += ['-I' + str(root / directory) for directory in includes]
 for fixture in ('compile_only_board.h', 'compile_only_bench.h'):
     checked = [str(root / 'tests/fixtures' / fixture) if arg ==
                str(root / 'tests/fixtures/compile_only_board.h') else arg for arg in command]
+    if fixture == 'compile_only_bench.h':
+        checked.append('-DGP_DIRECT_COMMANDS=1')
     for source in ('App/Src/gp_stm32_bsp.c', 'App/Src/gp_output_shutdown.c', 'App/Src/gp_app.c', 'Core/Src/stm32f1xx_it.c',
-                   'Core/Src/main.c', 'App/Src/gp_diag.c', 'App/Src/gp_service.c'):
+                   'Core/Src/main.c', 'App/Src/gp_diag.c', 'App/Src/gp_diag_format.c', 'App/Src/gp_service.c'):
         subprocess.run(checked + [str(root / source)], check=True)
 print('PASS signal/controlled-bench, CAN, watchdog, tasks, ISR and assert syntax; no synthetic image linked')

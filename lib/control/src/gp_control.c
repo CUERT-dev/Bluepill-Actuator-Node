@@ -1,4 +1,5 @@
 #include "gp_control.h"
+#include "command_map.h"
 
 #include <string.h>
 
@@ -7,6 +8,14 @@
 #define GP_HALF_TIME 0x80000000u
 #define GP_NEUTRAL_THROTTLE 1u
 #define GP_NEUTRAL_STEERING 2u
+#define GP_DIRECT_RETRY_FAULTS (GP_FAULT_TIMEOUT | GP_FAULT_QUEUE_AGE | \
+                               GP_FAULT_BACKLOG | GP_FAULT_TIMING)
+
+static bool direct_retry(const GpMotorTask *task)
+{
+    return task->control->config.direct_commands && task->latched_faults != 0 &&
+           (task->latched_faults & ~(uint32_t)GP_DIRECT_RETRY_FAULTS) == 0;
+}
 
 static bool neutral(const TargetSample *command)
 {
@@ -21,7 +30,7 @@ static bool age_over(uint32_t now, uint32_t then, uint32_t budget)
 
 GpControlConfig GpControl_DefaultConfig(void)
 {
-    GpControlConfig config = {10, 200, 40, 8, 8, 8, 8};
+    GpControlConfig config = {10, 200, 40, 8, 8, 8, 8, false};
     return config;
 }
 
@@ -75,6 +84,12 @@ GpResult GpControl_CaptureIsr(GpControl *control, const GpCanFrame *frame,
     uint32_t saved = control->port.enter(control->port.user, true);
     bool full = control->raw_count == control->config.raw_capacity;
     ++control->captured;
+    control->last_rx_id = frame->id;
+    control->last_rx_dlc = frame->dlc;
+    memcpy(control->last_rx_data, frame->data, sizeof(control->last_rx_data));
+    control->last_rx_ms = received;
+    control->last_rx_extended = extended;
+    control->last_rx_remote = remote;
     if (full) {
         ++control->raw_dropped;
         control->urgent_reasons |= GP_FAULT_RAW_OVERFLOW;
@@ -228,6 +243,7 @@ static void shutdown(GpMotorTask *task, uint32_t reasons, uint32_t now)
     task->latest = (TargetSample){0};
     task->have_latest = false;
     task->output_pending = false;
+    task->rx_waiting = false;
     task->last_update_ms = now;
     task->last_shutdown_reasons = reasons;
     task->fault_history |= reasons & ~(uint32_t)GP_DISARM_REASONS;
@@ -236,12 +252,16 @@ static void shutdown(GpMotorTask *task, uint32_t reasons, uint32_t now)
     task->shutdown_executed = true;
     control->urgent_reasons = 0;
     task->state = task->latched_faults ? GP_FAULT_SHUTDOWN : GP_WAIT_FOR_NEUTRAL;
-    control->accepting = task->latched_faults == 0;
+    /* Direct commands need no local acknowledgement after a transient stream
+     * stop. The generation barrier still discards everything already buffered;
+     * only a newly captured, decoded and fresh command can restart motion. */
+    control->accepting = task->latched_faults == 0 || direct_retry(task);
 }
 
-static uint32_t input_faults(GpControl *control)
+static uint32_t input_faults(GpControl *control, bool *rx_pending)
 {
     GpControlInputs inputs = {0};
+    *rx_pending = false;
     if (!control->port.read_inputs(control->port.user, &inputs)) {
         return GP_FAULT_DEPENDENCY;
     }
@@ -253,7 +273,7 @@ static uint32_t input_faults(GpControl *control)
     }
     if (!inputs.can_bus_ok) faults |= GP_FAULT_BUS_OFF;
     if (!inputs.outputs_approved || !control->decoder_ready) faults |= GP_FAULT_DEPENDENCY;
-    if (inputs.hardware_rx_pending) faults |= GP_FAULT_BACKLOG;
+    *rx_pending = inputs.hardware_rx_pending;
     return faults;
 }
 
@@ -263,10 +283,38 @@ static bool raw_backlog(const GpControl *control)
            (control->rx_inflight && control->inflight_generation == control->generation);
 }
 
+/* A frame racing a motor deadline is ordinary traffic, not an overload.
+ * Hold BOTH outputs off without flushing the packet (it could be STOP).
+ * Decoder/ISR notifications and periodic motor runs finish the transaction.
+ * No slew credit accumulates while waiting; persistent congestion still latches.
+ * Caller holds the channel lock. Never notify a worker under that lock. */
+static GpResult wait_for_rx(GpMotorTask *task, uint32_t now)
+{
+    uint32_t throttle_remainder = task->map.throttle_remainder;
+    uint32_t steering_remainder = task->map.steering_remainder;
+    if (!task->rx_waiting) {
+        task->rx_waiting = true;
+        task->rx_wait_since_ms = now;
+        ++task->rx_wait_count;
+        /* A pending driver transaction already holds both axes off. Keep its
+         * setup/deadtime progress so repeated CAN arrivals cannot starve it. */
+        if (!task->output_pending) MotorDriver_Stop(&task->driver);
+    }
+    CommandMap_Reset(&task->map);
+    /* Retain only previously earned sub-unit credit, including startup at
+     * very low slew. Clearing it at every packet could prevent any first step. */
+    task->map.throttle_remainder = throttle_remainder;
+    task->map.steering_remainder = steering_remainder;
+    task->applied = (MotorOutput){0, 0};
+    task->last_update_ms = now;
+    return GP_PENDING;
+}
+
 static bool command_permission(const GpMotorTask *task)
 {
+    uint8_t required = task->control->config.direct_commands ? GP_FLAG_VALID : GP_ALLOWED_FLAGS;
     return task->state == GP_ARMED && task->have_latest && task->latched_faults == 0 &&
-           (task->latest.flags & GP_ALLOWED_FLAGS) == GP_ALLOWED_FLAGS;
+           (task->latest.flags & required) == required;
 }
 
 GpResult GpMotor_InitInhibited(GpMotorTask *task, GpControl *control,
@@ -330,8 +378,11 @@ static uint32_t accept_event(GpMotorTask *task, const GpCommandEvent *event,
     if ((command->flags & GP_FLAG_VALID) == 0) {
         return GP_REASON_STOP;
     }
+    /* Direct mode changes operator authorization only. Fault/freshness/STOP
+     * checks still surround event acceptance and the final output commit. */
+    if (task->control->config.direct_commands) task->state = GP_ARMED;
     if (task->state == GP_ARMED) {
-        if (!arm || !deadman) {
+        if (!task->control->config.direct_commands && (!arm || !deadman)) {
             return GP_REASON_PERMISSION;
         }
         /* Preserve ordered zeros independently, even if later targets in this
@@ -366,7 +417,12 @@ GpResult GpMotor_Run(GpMotorTask *task)
     GpControl *control = task->control;
     uint32_t saved = control->port.enter(control->port.user, false);
     uint32_t now = control->port.now_ms(control->port.user);
-    uint32_t reasons = input_faults(control);
+    bool rx_pending;
+    uint32_t reasons = input_faults(control, &rx_pending);
+    if (task->rx_waiting && age_over(now, task->rx_wait_since_ms,
+                                    control->config.stage_budget_ms)) {
+        reasons |= GP_FAULT_BACKLOG;
+    }
     if (task->inhibited_off) reasons |= GP_FAULT_DEPENDENCY;
     reasons |= control->urgent_reasons;
     if (task->have_latest &&
@@ -379,8 +435,23 @@ GpResult GpMotor_Run(GpMotorTask *task)
         return GP_INVALID;
     }
     if (task->latched_faults != 0) {
-        control->port.leave(control->port.user, false, saved);
-        return GP_INVALID;
+        bool fresh_restart = false;
+        if (direct_retry(task) && control->event_count != 0) {
+            const GpCommandEvent *event = &control->events[control->event_head];
+            fresh_restart = event->generation == control->generation &&
+                (event->command.flags & GP_FLAG_VALID) != 0 &&
+                !age_over(now, event->published_ms, control->config.stage_budget_ms) &&
+                (uint32_t)(now - event->received_ms) < control->config.command_timeout_ms;
+        }
+        if (!fresh_restart) {
+            if (direct_retry(task) && control->event_count != 0)
+                shutdown(task, GP_FAULT_QUEUE_AGE, now);
+            control->port.leave(control->port.user, false, saved);
+            return GP_INVALID;
+        }
+        task->latched_faults = 0;
+        task->state = GP_DISARMED;
+        /* shutdown already reset driver/map and held both outputs inactive. */
     }
     if (task->state == GP_DISARMED) task->state = GP_WAIT_FOR_NEUTRAL;
     bool was_armed = task->state == GP_ARMED;
@@ -400,8 +471,8 @@ GpResult GpMotor_Run(GpMotorTask *task)
         reasons |= accept_event(task, &event, &neutral_axes);
         if (reasons != 0) break;
     }
-    /* Even a raw frame not yet decoded could be STOP. Never output past it. */
-    if (reasons == 0 && (control->event_count != 0 || raw_backlog(control))) {
+    /* Exhausting the configured event budget is an actual overload. */
+    if (reasons == 0 && control->event_count != 0) {
         reasons |= GP_FAULT_BACKLOG;
     }
     if (reasons != 0) {
@@ -409,7 +480,14 @@ GpResult GpMotor_Run(GpMotorTask *task)
         control->port.leave(control->port.user, false, saved);
         return GP_INVALID;
     }
+    if (rx_pending || raw_backlog(control)) {
+        GpResult waiting = wait_for_rx(task, now);
+        control->port.leave(control->port.user, false, saved);
+        control->port.notify(control->port.user, GP_WAKE_CAN_RX, false);
+        return waiting;
+    }
     if (task->state != GP_ARMED || !task->have_latest) {
+        task->rx_waiting = false;
         task->last_update_ms = now;
         control->port.leave(control->port.user, false, saved);
         return GP_OK;
@@ -419,7 +497,7 @@ GpResult GpMotor_Run(GpMotorTask *task)
     bool period_due = dt >= control->config.motor_period_ms;
     if (!period_due && neutral_axes == 0) {
         control->port.leave(control->port.user, false, saved);
-        return GP_OK; /* no new output due; reserve PENDING for driver waits */
+        return GP_OK; /* no new output due */
     }
     if (!period_due && task->output_pending && !(neutral_axes & GP_NEUTRAL_STEERING)) {
         /* Throttle is already off during steering setup. With cleared slew
@@ -439,6 +517,7 @@ GpResult GpMotor_Run(GpMotorTask *task)
 
     /* Clear only the neutral axis's slew history. An early neutral notification
      * must not advance the other axis's slew or invent elapsed mapping time. */
+    CommandMap prior_map = task->map;
     TargetSample command = task->latest;
     if (neutral_axes & GP_NEUTRAL_THROTTLE) {
         command.throttle_pm = 0;
@@ -456,15 +535,18 @@ GpResult GpMotor_Run(GpMotorTask *task)
     uint32_t steering_remainder = task->map.steering_remainder;
     GpResult result = GP_OK;
     if (period_due) {
-        result = CommandMap_Update(&task->map, &command, dt,
-                                    command_permission(task), &request);
+        result = control->config.direct_commands
+            ? CommandMap_UpdateDirect(&task->map, &command, dt, command_permission(task), &request)
+            : CommandMap_Update(&task->map, &command, dt, command_permission(task), &request);
     }
 
     saved = control->port.enter(control->port.user, false);
     now = control->port.now_ms(control->port.user);
-    reasons = input_faults(control);
+    reasons = input_faults(control, &rx_pending);
     reasons |= control->urgent_reasons;
-    if (control->event_count != 0 || raw_backlog(control) || generation != control->generation) {
+    if (generation != control->generation ||
+        (task->rx_waiting && age_over(now, task->rx_wait_since_ms,
+                                     control->config.stage_budget_ms))) {
         reasons |= GP_FAULT_BACKLOG;
     }
     if ((uint32_t)(now - task->latest_received_ms) >= control->config.command_timeout_ms) {
@@ -478,7 +560,11 @@ GpResult GpMotor_Run(GpMotorTask *task)
     if (reasons != 0) {
         shutdown(task, reasons, now);
         result = GP_INVALID;
+    } else if (rx_pending || control->event_count != 0 || raw_backlog(control)) {
+        task->map = prior_map; /* discard arithmetic for the uncommitted request */
+        result = wait_for_rx(task, now);
     } else {
+        task->rx_waiting = false;
         /* Final check and output commit are serialized against ISR/event
          * publication. Hardware cutoff remains independent of this lock. */
         /* Driver permission is derived from supervisor faults, not a physical
@@ -504,6 +590,8 @@ GpResult GpMotor_Run(GpMotorTask *task)
         }
     }
     control->port.leave(control->port.user, false, saved);
+    if (task->rx_waiting)
+        control->port.notify(control->port.user, GP_WAKE_CAN_RX, false);
     return result;
 }
 
@@ -512,7 +600,8 @@ GpResult GpMotor_Recover(GpMotorTask *task)
     if (task == NULL || !task->initialized) return GP_BAD_ARG;
     GpControl *control = task->control;
     uint32_t saved = control->port.enter(control->port.user, false);
-    uint32_t reasons = input_faults(control);
+    bool rx_pending;
+    uint32_t reasons = input_faults(control, &rx_pending);
     if (task->inhibited_off) reasons |= GP_FAULT_DEPENDENCY;
     reasons |= control->urgent_reasons;
     uint32_t now = control->port.now_ms(control->port.user);
@@ -520,6 +609,10 @@ GpResult GpMotor_Recover(GpMotorTask *task)
         shutdown(task, reasons, now);
         control->port.leave(control->port.user, false, saved);
         return GP_INVALID;
+    }
+    if (rx_pending) {
+        control->port.leave(control->port.user, false, saved);
+        return GP_PENDING; /* Recovery must still fence the hardware FIFO. */
     }
     if (task->state != GP_FAULT_SHUTDOWN || !task->shutdown_executed) {
         control->port.leave(control->port.user, false, saved);

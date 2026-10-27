@@ -4,13 +4,24 @@ enable_testing()
 add_executable(gp_pipeline_tests test_pipeline.c)
 target_link_libraries(gp_pipeline_tests PRIVATE gp_control gp_actuator gp_can_codec gp_hardware)
 target_compile_options(gp_pipeline_tests PRIVATE -Wall -Wextra -Werror -Wpedantic)
-foreach(case IN ITEMS commissioning_range axes readiness_stop reversal_failure readiness_slew readiness_fractional pending_fractional_neutral)
+foreach(case IN ITEMS direct_range commissioning_range axes readiness_stop reversal_failure readiness_slew readiness_fractional pending_fractional_neutral rx_setup_progress)
     add_test(NAME pipeline_${case} COMMAND gp_pipeline_tests ${case})
 endforeach()
+add_executable(gp_steering_bench_tests test_pipeline.c)
+target_link_libraries(gp_steering_bench_tests PRIVATE gp_control gp_actuator gp_can_codec gp_hardware)
+target_compile_options(gp_steering_bench_tests PRIVATE -Wall -Wextra -Werror -Wpedantic)
+target_compile_definitions(gp_steering_bench_tests PRIVATE
+    GP_TEST_STEERING_BENCH=1 GP_CONTROLLED_BENCH_ACTUATION=1 GP_UNPOWERED_SIGNAL_TEST=0)
+add_test(NAME pipeline_steering_bench_range COMMAND gp_steering_bench_tests direct_range)
 add_executable(gp_service_tests test_service.c ../../App/Src/gp_service.c)
 target_include_directories(gp_service_tests PRIVATE ../../App/Inc)
 target_compile_options(gp_service_tests PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
 add_test(NAME service_parser COMMAND gp_service_tests)
+add_executable(gp_diag_tests test_diag.c ../../App/Src/gp_diag_format.c)
+target_include_directories(gp_diag_tests PRIVATE ../../App/Inc)
+target_link_libraries(gp_diag_tests PRIVATE gp_control gp_actuator)
+target_compile_options(gp_diag_tests PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
+add_test(NAME diagnostic_motion_report COMMAND gp_diag_tests)
 
 add_subdirectory(../../lib gp_actuator)
 add_executable(gp_can_frame gp_can_frame.c)
@@ -52,6 +63,9 @@ foreach(case IN ITEMS map_endpoints map_fractional map_reversal map_flags
 endforeach()
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_test(NAME config_canbench_release_preset COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../firmware/test_canbench_release.py
+    --root ${CMAKE_CURRENT_SOURCE_DIR}/../.. --cc ${CMAKE_C_COMPILER})
 if(CMAKE_C_COMPILER_ID STREQUAL "GNU" AND (WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
     # Native execution of the actual register-only shutdown against mapped storage.
     # No HAL/RTOS stub or synthetic hardware provider is required.
@@ -95,13 +109,14 @@ endforeach()
 
 add_executable(gp_control_tests test_control.c)
 target_link_libraries(gp_control_tests PRIVATE gp_control gp_actuator gp_can_codec)
+target_include_directories(gp_control_tests PRIVATE ../../App/Inc)
 set_target_properties(gp_control_tests gp_control PROPERTIES
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(gp_control_tests PRIVATE -Wall -Wextra -Werror -Wpedantic)
     target_compile_options(gp_control PRIVATE -Wall -Wextra -Werror -Wpedantic)
 endif()
-foreach(case IN ITEMS startup throttle steering ordinary_neutral stop_throttle
+foreach(case IN ITEMS direct_commands direct_stream_resume ready_task_order startup throttle steering ordinary_neutral stop_throttle
         stop_arm_burst stop_then_recovery_queued raw_full_stop event_full_stop
         duplicate sequence_wrap out_of_order stale_raw stale_event timestamp_capture
         timeout deadman arm_edge_order estop bus_off sender_reset driver_error
@@ -109,6 +124,7 @@ foreach(case IN ITEMS startup throttle steering ordinary_neutral stop_throttle
         repeated_shutdown recover_barrier inflight_generation inflight_backlog
         final_commit_fault final_commit_frame scheduled_notifications malformed
         missing_dependencies hardware_backlog deadline bounded_rx config_arguments
+        rx_wait_bound rx_commit_races rx_continuous
         hardware_barrier pending_reversal neutral_steering neutral_throttle
         neutral_both neutral_due neutral_coalesced neutral_fractional neutral_pending
         inhibited_supervisor diagnostic_counters unwired_estop unknown_estop_mode

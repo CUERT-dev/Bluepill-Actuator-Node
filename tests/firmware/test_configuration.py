@@ -12,6 +12,7 @@ root = Path(a.root).resolve()
 output = Path(a.output).resolve()
 output.mkdir(parents=True, exist_ok=True)
 cases = {
+    'direct_without_outputs': (['-DGP_DIRECT_COMMANDS=ON'], 'Direct commands require CAN and actuation enabled'),
     'missing_approval': (['-DGP_ENABLE_CAN=ON'], 'requires GP_BOARD_APPROVAL_HEADER'),
     'duplicate_decoder': (['-DGP_DECODER_SOURCES=not-a-provider.c'], 'production CAN codec is built in'),
     'test_approval': (['-DGP_BOARD_APPROVAL_HEADER=' + str(root / 'tests/fixtures/compile_only_board.h')], 'Test fixtures'),

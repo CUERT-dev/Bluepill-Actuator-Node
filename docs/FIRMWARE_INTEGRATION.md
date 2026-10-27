@@ -24,9 +24,12 @@ GPIO/remap audit and separates completed software from configuration and physica
 work. Operational CAN and powered operation remain gated.
 
 **Implemented application wiring.** `App/Src/gp_app.c` creates static motor and
-CAN tasks at application priorities 3 and 2, with 512-word and 384-word stacks.
+CAN tasks at application priorities 2 and 3, with 512-word and 384-word stacks.
+CAN decoding precedes ready motor deadlines; see the ordering regression and
+bounded fault/backlog handoff in [ACTUATION_DIAGNOSIS.md](ACTUATION_DIAGNOSIS.md).
 The idle task also uses static allocation. There is no RTOS heap allocation,
-STOP task, diagnostics task or logging in interrupts. The actual FreeRTOS 10.3.1
+STOP task or logging in interrupts. The USART service task runs at priority 1.
+The actual FreeRTOS 10.3.1
 Cortex-M3 kernel/port comes from the installed STM32Cube F1 V1.8.7 package;
 the added HAL CAN/TIM/IWDG files come from that same package. All 36 imported
 files and their exact hashes are recorded in

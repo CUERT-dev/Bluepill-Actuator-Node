@@ -1,4 +1,5 @@
 #include "gp_control.h"
+#include "gp_board_config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,7 +131,8 @@ static GpResult write_motor(void *user, const MotorOutput *output)
         CHECK(!f->control.rx_inflight ||
               f->control.inflight_generation != f->control.generation);
         CHECK(f->motor.state == GP_ARMED && f->motor.latched_faults == 0);
-        CHECK((f->motor.latest.flags & FLAGS) == FLAGS);
+        uint8_t required = f->control.config.direct_commands ? GP_FLAG_VALID : FLAGS;
+        CHECK((f->motor.latest.flags & required) == required);
         CHECK((uint32_t)(f->now - f->motor.latest_received_ms) <
               f->control.config.command_timeout_ms);
         ++f->nonzero_writes;
@@ -683,9 +685,15 @@ static void backlog(void)
     arm(&f);
     queue(&f, 102, 900, 0, FLAGS, 20);
     f.allow_motion = false;
-    CHECK(motor_run(&f, 21) == GP_INVALID);
-    CHECK(f.motor.latched_faults & GP_FAULT_BACKLOG);
-    stopped(&f);
+    CHECK(motor_run(&f, 21) == GP_PENDING);
+    CHECK(f.motor.latched_faults == 0 && f.motor.rx_waiting);
+    CHECK(!nonzero(f.physical) && !nonzero(f.motor.applied));
+    CHECK(f.control.raw_count == 1); /* preserve the undecoded packet */
+    CHECK(receive(&f) == 1);
+    f.allow_motion = true;
+    CHECK(motor_run(&f, 31) == GP_OK);
+    CHECK(f.physical.throttle_duty_pm == 100); /* restart slew from zero */
+    CHECK(!f.motor.rx_waiting && f.motor.rx_wait_count == 1);
 }
 
 static void event_budget(void)
@@ -777,8 +785,8 @@ static void inflight_generation(void)
 static void motor_preempts_decode(Fixture *f)
 {
     f->allow_motion = false;
-    CHECK(motor_run(f, f->now) == GP_INVALID);
-    CHECK(f->motor.latched_faults & GP_FAULT_BACKLOG);
+    CHECK(motor_run(f, f->now) == GP_PENDING);
+    CHECK(f->motor.latched_faults == 0 && !nonzero(f->physical));
 }
 
 static void inflight_backlog(void)
@@ -789,8 +797,11 @@ static void inflight_backlog(void)
     queue(&f, 102, 900, 0, FLAGS, 21);
     f.decode_hook = motor_preempts_decode;
     CHECK(receive(&f) == 1);
-    stopped(&f);
-    CHECK(f.control.event_count == 0);
+    CHECK(!nonzero(f.physical));
+    CHECK(f.control.event_count == 1);
+    f.allow_motion = true;
+    CHECK(motor_run(&f, 31) == GP_OK);
+    CHECK(nonzero(f.physical) && f.motor.latched_faults == 0);
 }
 
 static void fault_between_checks(Fixture *f)
@@ -822,8 +833,11 @@ static void final_commit_frame(void)
     init(&f);
     arm(&f);
     f.unlocked_hook = frame_between_checks;
-    CHECK(motor_run(&f, 21) == GP_INVALID);
-    CHECK(f.motor.latched_faults & GP_FAULT_BACKLOG);
+    CHECK(motor_run(&f, 21) == GP_PENDING);
+    CHECK(f.motor.latched_faults == 0 && !nonzero(f.physical));
+    CHECK(receive(&f) == 1); /* STOP survives the race and is honored */
+    CHECK(motor_run(&f, 22) == GP_INVALID);
+    CHECK(f.motor.last_shutdown_reasons == GP_REASON_STOP);
     stopped(&f);
 }
 
@@ -892,9 +906,90 @@ static void hardware_backlog(void)
     arm(&f);
     f.inputs.hardware_rx_pending = true;
     f.allow_motion = false;
-    CHECK(motor_run(&f, 12) == GP_INVALID);
+    CHECK(motor_run(&f, 12) == GP_PENDING);
+    CHECK(f.motor.latched_faults == 0 && !nonzero(f.physical));
+    unsigned offs = f.off_count;
+    CHECK(motor_run(&f, 52) == GP_PENDING); /* bounded, exact 40ms */
+    CHECK(f.off_count == offs); /* do not restart the driver's stop each poll */
+    CHECK(motor_run(&f, 53) == GP_INVALID);
     CHECK(f.motor.latched_faults & GP_FAULT_BACKLOG);
     stopped(&f);
+}
+
+static void rx_wait_bound(void)
+{
+    Fixture f;
+    uint32_t start = UINT32_MAX - 20u;
+    init_with(&f, GpControl_DefaultConfig(), start, true);
+    arm_at(&f, 100, start);
+    queue(&f, 102, 900, 0, FLAGS, start + 12u);
+    f.allow_motion = false;
+    CHECK(motor_run(&f, start + 12u) == GP_PENDING);
+    CHECK(motor_run(&f, start + 52u) == GP_PENDING);
+    CHECK(f.motor.rx_wait_count == 1 && f.control.raw_count == 1);
+    CHECK(motor_run(&f, start + 53u) == GP_INVALID);
+    CHECK(f.motor.latched_faults == GP_FAULT_BACKLOG);
+    stopped(&f);
+    CHECK(f.control.raw_count == 0);
+}
+
+static void decoded_between_checks(Fixture *f)
+{
+    send(f, 102, 900, 0, FLAGS, f->now);
+}
+
+static void hardware_between_checks(Fixture *f)
+{
+    f->inputs.hardware_rx_pending = true;
+}
+
+static void rx_commit_races(void)
+{
+    for (unsigned hardware = 0; hardware < 2; ++hardware) {
+        Fixture f;
+        init(&f);
+        arm(&f);
+        unsigned writes = f.writes;
+        f.unlocked_hook = hardware ? hardware_between_checks : decoded_between_checks;
+        CHECK(motor_run(&f, 21) == GP_PENDING);
+        CHECK(f.writes == writes && !nonzero(f.physical));
+        CHECK(f.motor.rx_waiting && f.motor.latched_faults == 0);
+        if (hardware) {
+            f.inputs.hardware_rx_pending = false; /* ISR drains FIFO */
+            send(&f, 102, 900, 0, FLAGS, 22);
+        }
+        CHECK(motor_run(&f, 22) == GP_OK);
+        CHECK(!nonzero(f.physical)); /* no invented slew credit */
+        CHECK(motor_run(&f, 31) == GP_OK);
+        CHECK(f.physical.throttle_duty_pm == 100);
+        CHECK(f.motor.latest.throttle_pm == 900 && !f.motor.rx_waiting);
+    }
+}
+
+static void rx_continuous(void)
+{
+    Fixture f;
+    GpControlConfig config = GpControl_DefaultConfig();
+    config.direct_commands = true;
+    init_with(&f, config, 0, true);
+    f.production_codec = true;
+    CHECK(GpCanRx_Init(&f.rx, &f.control, GP_DecodeCan) == GP_OK);
+    f.allow_motion = true;
+    /* 20 seconds of actual wire frames, deliberately motor-first every 20ms.
+     * No recovery, dropped packet, sequence reset or operator permission. */
+    for (uint16_t seq = 1; seq <= 1000; ++seq) {
+        uint32_t now = (uint32_t)seq * 20u;
+        queue(&f, seq, 500, 0, GP_FLAG_VALID, now);
+        CHECK(motor_run(&f, now) == GP_PENDING);
+        CHECK(!nonzero(f.physical));
+        CHECK(receive(&f) == 1);
+        CHECK(motor_run(&f, now + 1) == GP_OK);
+        CHECK(motor_run(&f, now + 11) == GP_OK);
+        CHECK(nonzero(f.physical));
+        CHECK(f.motor.latched_faults == 0 && !f.motor.rx_waiting);
+    }
+    CHECK(f.motor.rx_wait_count == 1000 && f.control.decoded == 1000);
+    CHECK(f.control.raw_dropped == 0 && f.control.barred == 0);
 }
 
 static void deadline(void)
@@ -1365,17 +1460,180 @@ static void diagnostic_counters(void)
     GpCanFrame bad = frame_for(&f, 102, 400, 0, FLAGS);
     bad.data[7] ^= 1;
     CHECK(capture(&f, &bad, 3, false, false) == GP_OK);
+    CHECK(memcmp(f.control.last_rx_data, bad.data, sizeof(bad.data)) == 0);
+    CHECK(f.control.last_rx_ms == 3);
     CHECK(receive(&f) == 1);
     CHECK(f.control.rejected == 1 && f.control.published == before);
     CHECK(f.motor.latest_received_ms == timestamp);
     CHECK(f.control.captured == f.control.decoded + f.control.rejected);
+    CHECK(f.control.last_rx_id == GP_CAN_COMMAND_ID && f.control.last_rx_dlc == 8);
+    GpCanFrame unrelated = {0x321, 2, {0}};
+    CHECK(capture(&f, &unrelated, 4, false, false) == GP_OK);
+    CHECK(receive(&f) == 1);
+    CHECK(f.control.last_rx_id == 0x321 && f.control.last_rx_dlc == 2);
+    CHECK(f.motor.latest_received_ms == timestamp); /* RX metadata is not freshness */
+    CHECK(memcmp(f.control.last_rx_data, unrelated.data, sizeof(unrelated.data)) == 0);
+    CHECK(f.control.last_rx_ms == 4 && !f.control.last_rx_extended && !f.control.last_rx_remote);
+    fault(&f, GP_FAULT_ESTOP);
+    CHECK(motor_run(&f, 5) == GP_INVALID);
+    CHECK(f.control.last_rx_ms == 4); /* shutdown preserves raw diagnostic evidence */
+}
+
+static void direct_commands(void)
+{
+    Fixture f;
+    GpControlConfig cfg = GpControl_DefaultConfig();
+    cfg.direct_commands = true;
+    init_with(&f, cfg, 0, true);
+    f.production_codec = true;
+    CHECK(GpCanRx_Init(&f.rx, &f.control, GP_DecodeCan) == GP_OK);
+    f.allow_motion = true;
+    send(&f, 1, 500, 0, GP_FLAG_VALID, 1);
+    CHECK(motor_run(&f, 1) == GP_OK && f.motor.state == GP_ARMED);
+    CHECK(motor_run(&f, 11) == GP_OK && f.physical.throttle_duty_pm == 100);
+    CHECK(f.motor.latest.flags == GP_FLAG_VALID); /* never fabricate ARM/DEADMAN */
+    /* Switching either operator flag has no effect in direct mode. */
+    send(&f, 2, 500, 0, FLAGS, 21);
+    CHECK(motor_run(&f, 21) == GP_OK);
+    send(&f, 3, 500, 0, GP_FLAG_VALID, 31);
+    CHECK(motor_run(&f, 31) == GP_OK && f.physical.throttle_duty_pm == 300);
+    /* STOP still wins, and resumption needs a new valid command (no handshake). */
+    send(&f, 4, 0, 0, 0, 32);
+    CHECK(motor_run(&f, 32) == GP_INVALID);
+    stopped(&f);
+    send(&f, 5, 500, 0, GP_FLAG_VALID, 33);
+    CHECK(motor_run(&f, 33) == GP_OK);
+    CHECK(motor_run(&f, 43) == GP_OK && f.physical.throttle_duty_pm == 100);
+    /* Duplicate and malformed commands cannot keep an old output alive. */
+    for (uint32_t t = 53; t <= 93; t += 10) CHECK(motor_run(&f, t) == GP_OK);
+    send(&f, 5, 500, 0, GP_FLAG_VALID, 100);
+    CHECK(f.control.stale == 1 && f.motor.latest_received_ms == 33);
+    GpCanFrame bad = frame_for(&f, 6, 500, 0, GP_FLAG_VALID);
+    bad.data[7] ^= 1;
+    CHECK(capture(&f, &bad, 101, false, false) == GP_OK);
+    CHECK(receive(&f) == 1 && f.control.rejected == 1);
+    for (uint32_t t = 103; t < 233; t += 10) CHECK(motor_run(&f, t) == GP_OK);
+    f.allow_motion = false;
+    CHECK(motor_run(&f, 233) == GP_INVALID);
+    CHECK(f.motor.latched_faults & GP_FAULT_TIMEOUT);
+    stopped(&f);
+    send(&f, 7, 500, 0, GP_FLAG_VALID, 234);
+    CHECK(motor_run(&f, 234) == GP_OK); /* fresh direct command resumes */
+    CHECK(f.motor.latched_faults == 0 && !nonzero(f.physical));
+    f.allow_motion = true;
+    send(&f, 8, 500, 0, GP_FLAG_VALID, 235);
+    CHECK(motor_run(&f, 235) == GP_OK);
+    CHECK(motor_run(&f, 245) == GP_OK && f.physical.throttle_duty_pm > 0);
+    fault(&f, GP_FAULT_ESTOP);
+    CHECK(motor_run(&f, 246) == GP_INVALID);
+    stopped(&f);
+    CHECK(f.motor.latched_faults & GP_FAULT_ESTOP);
+}
+
+static void direct_stream_resume(void)
+{
+    const uint32_t reasons[] = {GP_FAULT_TIMEOUT, GP_FAULT_QUEUE_AGE,
+                               GP_FAULT_BACKLOG, GP_FAULT_TIMING};
+    for (unsigned i = 0; i < sizeof(reasons) / sizeof(reasons[0]); ++i) {
+        Fixture f;
+        GpControlConfig cfg = GpControl_DefaultConfig();
+        cfg.direct_commands = true;
+        init_with(&f, cfg, 0, true);
+        f.production_codec = true;
+        CHECK(GpCanRx_Init(&f.rx, &f.control, GP_DecodeCan) == GP_OK);
+        send(&f, 1, 0, 700, GP_FLAG_VALID, 1);
+        f.allow_motion = true;
+        for (uint32_t t = 1; t <= 51; t += 10) {
+            GpResult r = motor_run(&f, t);
+            CHECK(r == GP_OK || r == GP_PENDING);
+        }
+        CHECK(f.physical.steering_rate_pm > 0);
+        /* Old queued commands cannot restart a faulted generation. */
+        send(&f, 2, 0, 800, GP_FLAG_VALID, 52);
+        fault(&f, reasons[i]);
+        CHECK(motor_run(&f, 52) == GP_INVALID);
+        stopped(&f);
+        CHECK(f.motor.latched_faults == reasons[i]);
+        CHECK(f.control.event_count == 0 && f.control.accepting);
+        CHECK(motor_run(&f, 53) == GP_INVALID); /* no command, no restart */
+        GpCanFrame bad = frame_for(&f, 3, 0, -700, GP_FLAG_VALID);
+        bad.data[7] ^= 1;
+        CHECK(capture(&f, &bad, 54, false, false) == GP_OK);
+        CHECK(receive(&f) == 1 && f.control.rejected == 1);
+        CHECK(motor_run(&f, 54) == GP_INVALID);
+        /* An event that expired during a stalled motor task is never applied. */
+        send(&f, 4, 0, -700, GP_FLAG_VALID, 55);
+        CHECK(motor_run(&f, 96) == GP_INVALID);
+        CHECK(f.control.event_count == 0);
+        send(&f, 5, 0, -700, GP_FLAG_VALID, 97);
+        f.allow_motion = true;
+        CHECK(motor_run(&f, 97) == GP_OK);
+        CHECK(f.motor.latest.steering_pm == -700 && f.motor.latched_faults == 0);
+        for (uint32_t t = 107; t <= 147; t += 10) {
+            GpResult r = motor_run(&f, t);
+            CHECK(r == GP_OK || r == GP_PENDING);
+        }
+        CHECK(f.physical.steering_rate_pm < 0 && f.physical.throttle_duty_pm == 0);
+        CHECK(f.motor.fault_history & reasons[i]);
+    }
+    /* Neither pure hardware faults nor mixed transient/hardware faults resume. */
+    const uint32_t hard[] = {GP_FAULT_OUTPUT, GP_FAULT_BUS_OFF, GP_FAULT_ESTOP,
+        GP_FAULT_DEPENDENCY, GP_FAULT_RAW_OVERFLOW, GP_FAULT_EVENT_OVERFLOW,
+        GP_FAULT_CAN_OVERFLOW, GP_FAULT_TIMING | GP_FAULT_OUTPUT};
+    for (unsigned i = 0; i < sizeof(hard) / sizeof(hard[0]); ++i) {
+        Fixture f;
+        GpControlConfig cfg = GpControl_DefaultConfig();
+        cfg.direct_commands = true;
+        init_with(&f, cfg, 0, true);
+        fault(&f, hard[i]);
+        CHECK(motor_run(&f, 1) == GP_INVALID);
+        send(&f, 1, 0, 700, GP_FLAG_VALID, 2);
+        CHECK(motor_run(&f, 2) == GP_INVALID && f.motor.latched_faults == hard[i]);
+        CHECK(!f.control.accepting);
+        stopped(&f);
+    }
+}
+
+static void ready_task_order(void)
+{
+    Fixture f;
+    /* Either ready-task ordering must tolerate one ordinary fresh frame. */
+    init_codec(&f);
+    queue(&f, 1, 0, 0, GP_FLAG_VALID, 10);
+    CHECK(motor_run(&f, 10) == GP_PENDING);
+    CHECK(f.motor.latched_faults == 0 && !nonzero(f.physical));
+    CHECK(receive(&f) == 1);
+    CHECK(motor_run(&f, 10) == GP_OK);
+    CHECK(f.motor.state == GP_WAIT_FOR_ARM_EDGE);
+
+    /* Model highest-ready dispatch using the exact firmware priority settings.
+     * This is a deterministic ordering test, not a simulated FreeRTOS kernel. */
+    init_codec(&f);
+    for (uint16_t seq = 1; seq <= 4; ++seq) {
+        uint32_t now = 10u * seq;
+        uint8_t flags = seq == 1 ? GP_FLAG_VALID : seq == 4 ? 0 : FLAGS;
+        queue(&f, seq, seq == 3 ? 500 : 0, 0, flags, now);
+        if (GP_MOTOR_TASK_PRIORITY >= GP_CAN_TASK_PRIORITY)
+            (void)motor_run(&f, now);
+        CHECK(receive(&f) == 1);
+        f.allow_motion = seq == 2 || seq == 3;
+        GpResult result = motor_run(&f, now);
+        CHECK(f.motor.latched_faults == 0);
+        if (seq == 1) CHECK(f.motor.state == GP_WAIT_FOR_ARM_EDGE);
+        if (seq == 2) CHECK(f.motor.state == GP_ARMED);
+        if (seq == 3) CHECK(f.physical.throttle_duty_pm > 0);
+        if (seq == 4) {
+            CHECK(result == GP_INVALID && f.motor.last_shutdown_reasons == GP_REASON_STOP);
+            stopped(&f);
+        } else CHECK(result == GP_OK);
+    }
 }
 
 int main(int argc, char **argv)
 {
     const struct { const char *name; void (*run)(void); } tests[] = {
 #define TEST_CASE(name) {#name, name}
-        TEST_CASE(startup), TEST_CASE(throttle), TEST_CASE(steering),
+        TEST_CASE(direct_commands), TEST_CASE(direct_stream_resume), TEST_CASE(ready_task_order), TEST_CASE(startup), TEST_CASE(throttle), TEST_CASE(steering),
         TEST_CASE(ordinary_neutral), TEST_CASE(stop_throttle), TEST_CASE(stop_arm_burst),
         TEST_CASE(stop_then_recovery_queued), TEST_CASE(raw_full_stop), TEST_CASE(event_full_stop),
         TEST_CASE(duplicate), TEST_CASE(sequence_wrap), TEST_CASE(out_of_order),
@@ -1389,6 +1647,7 @@ int main(int argc, char **argv)
         TEST_CASE(final_commit_fault), TEST_CASE(final_commit_frame),
         TEST_CASE(scheduled_notifications), TEST_CASE(malformed),
         TEST_CASE(missing_dependencies), TEST_CASE(hardware_backlog),
+        TEST_CASE(rx_wait_bound), TEST_CASE(rx_commit_races), TEST_CASE(rx_continuous),
         TEST_CASE(deadline), TEST_CASE(bounded_rx), TEST_CASE(config_arguments),
         TEST_CASE(hardware_barrier), TEST_CASE(pending_reversal),
         TEST_CASE(neutral_steering), TEST_CASE(neutral_throttle), TEST_CASE(neutral_both),

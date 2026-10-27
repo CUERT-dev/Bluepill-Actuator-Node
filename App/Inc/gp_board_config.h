@@ -11,6 +11,12 @@
 #ifndef GP_ENABLE_CAN
 #define GP_ENABLE_CAN 0
 #endif
+#ifndef GP_DIRECT_COMMANDS
+#define GP_DIRECT_COMMANDS 0
+#endif
+#if GP_DIRECT_COMMANDS && (!GP_ENABLE_CAN || !GP_ENABLE_ACTUATION)
+#error "Direct commands require CAN and actuation enabled"
+#endif
 #ifndef GP_ENABLE_ACTUATION
 #define GP_ENABLE_ACTUATION 0
 #endif
@@ -136,6 +142,10 @@
 #define GP_CAN_ISR_DRAIN_BUDGET 3u
 #define GP_MOTOR_STACK_WORDS 512u
 #define GP_CAN_STACK_WORDS 384u
+/* Drain captured commands before a simultaneously-ready motor deadline.
+ * The supervisor deliberately faults on any undecoded backlog. */
+#define GP_CAN_TASK_PRIORITY 3u
+#define GP_MOTOR_TASK_PRIORITY 2u
 
 #if GP_ENABLE_CAN && (!GP_PIN_MAP_APPROVED || !GP_CAN_SETTINGS_APPROVED)
 #error "CAN requires approved pin map and explicit CAN timing"

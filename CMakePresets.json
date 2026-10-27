@@ -12,6 +12,7 @@
                 "GP_ENABLE_ACTUATION": "OFF",
                 "GP_UNPOWERED_SIGNAL_TEST": "OFF",
                 "GP_ENABLE_WATCHDOG": "OFF",
+                "GP_DIRECT_COMMANDS": "OFF",
                 "GP_BOARD_APPROVAL_HEADER": "",
                 "GP_CONTROLLED_BENCH_ACTUATION": "OFF"
             }
@@ -57,12 +58,20 @@
         },
         {
             "name": "CanBenchRelease",
-            "inherits": "release-base",
+            "displayName": "CAN + full-range dual-axis commissioning (Release)",
+            "description": "Direct valid CAN demand without ARM/DEADMAN or neutral arming. Outputs can start on the first command. CanBench stays receive-only.",
+            "inherits": "BenchActuationRelease",
             "cacheVariables": {
-                "GP_ENABLE_CAN": "ON",
-                "GP_ENABLE_ACTUATION": "OFF",
-                "GP_ENABLE_WATCHDOG": "OFF",
-                "GP_BOARD_APPROVAL_HEADER": "${sourceDir}/App/Profiles/can_bench.h"
+                "GP_DIRECT_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "SteeringBenchRelease",
+            "displayName": "Direct CAN, low-speed steering diagnostic (Release)",
+            "description": "86CM85 diagnostic: full signed steering demand maps to 1000 STEP/s; 200 STEP/s/s ramp. Throttle unchanged. Bench settings are physically unverified.",
+            "inherits": "CanBenchRelease",
+            "cacheVariables": {
+                "GP_BOARD_APPROVAL_HEADER": "${sourceDir}/App/Profiles/steering_bench.h"
             }
         },
         {
@@ -117,6 +126,10 @@
         }
     ],
     "buildPresets": [
+        {
+            "name": "SteeringBenchRelease",
+            "configurePreset": "SteeringBenchRelease"
+        },
         {
             "name": "Debug",
             "configurePreset": "Debug"
