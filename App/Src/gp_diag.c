@@ -82,6 +82,13 @@ static void entry(void *unused)
     send_text("COMMISSIONING CANDIDATE: actuation enabled; provisional settings; no safety/readiness inputs\r\n");
 #endif
     send_text("CUERT service 115200 8N1: status / recover + newline; no motor commands\r\n");
+    send_text("BLUE FW can-link-v1: CAN TX=PB9 RX=PB8; command ID=0x105 DLC=8; automatic RX reports every 1s\r\n");
+#if GP_ENABLE_CAN
+    send_text("BLUE CAN configured ON at 500000 bit/s; inspect ready=1 and rising rx/decode\r\n");
+#else
+    send_text("BLUE CAN DISABLED in this image: flash CanBench to test the ESP link\r\n");
+#endif
+    uint32_t last_report = HAL_GetTick();
     for (;;) {
         for (unsigned i = 0; i < 16; ++i) {
             uint32_t saved = __get_PRIMASK();
@@ -107,6 +114,23 @@ static void entry(void *unused)
                 GpApp_RequestRecovery();
                 send_text("recovery queued; inspect status; fresh neutral/ARM edge still required\r\n");
             } else if (command == GP_SERVICE_BAD_COMMAND) send_text("ERR command\r\n");
+        }
+        uint32_t now = HAL_GetTick();
+        if ((uint32_t)(now - last_report) >= 1000u) {
+            GpDiagStatus s;
+            GpApp_GetStatus(&s);
+            int n = snprintf(response, sizeof(response),
+                "BLUE CAN ready=%u configured=%u bitrate=%lu rx=%lu decode=%lu reject=%lu drop=%lu "
+                "seq=%u thr=%u str=%d flags=0x%02X age_ms=%lu ESR=0x%08lX BTR=0x%08lX fault=0x%08lX motor=%u\r\n",
+                s.can_ready, GP_ENABLE_CAN, (unsigned long)GP_CAN_BITRATE,
+                (unsigned long)s.captured, (unsigned long)s.decoded,
+                (unsigned long)s.rejected, (unsigned long)s.dropped,
+                (unsigned)s.decoded_command.sequence, (unsigned)s.decoded_command.throttle_pm,
+                (int)s.decoded_command.steering_pm, (unsigned)s.decoded_command.flags,
+                (unsigned long)(now - s.decoded_ms), (unsigned long)s.can_esr,
+                (unsigned long)s.can_btr, (unsigned long)s.faults, s.motor_ready);
+            if (n > 0 && (size_t)n < sizeof(response)) send_text(response);
+            last_report = now;
         }
         vTaskDelay(pdMS_TO_TICKS(1));
     }

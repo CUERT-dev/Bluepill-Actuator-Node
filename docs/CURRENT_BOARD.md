@@ -14,7 +14,8 @@ observe driver power/enable readiness.
 
 | Presets | CAN | PWM/STEP outputs | USART1 | IWDG |
 |---|---|---|---|---|
-| Debug, Release, SafeFlash | Off | Inhibited, analog GPIO | 115200 8N1 | Off |
+| Debug, SafeFlash | Off | Inhibited, analog GPIO | 115200 8N1 | Off |
+| Release | Real 500 kbit/s | Real dual-axis actuation; software arming required | Same, with commissioning warning | Off |
 | CanBench, CanBenchRelease | Real 500 kbit/s | Inhibited | Same | Off |
 | SignalTest, SignalTestRelease | Real 500 kbit/s | Real TIM2/TIM3 adapter; software arming required | Same, with unpowered-test startup warning | Off |
 | BenchActuation, BenchActuationRelease, Commissioning | Real 500 kbit/s | Real dual-axis actuation; software arming required | Same, with commissioning warning | Off |

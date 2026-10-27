@@ -20,6 +20,25 @@
 
 # Building
 
+## Normal Release build (updated 27 October 2026)
+
+`Release` now uses the existing full dual-axis commissioning configuration:
+CAN enabled at 500 kbit/s on PB8/PB9, command decoding, motor supervision,
+throttle PWM, steering STEP/DIR, and USART1 debug at 115200 8N1.
+
+```powershell
+cmake --preset Release
+cmake --build --preset Release
+```
+
+Flash `build/Release/Bluepill-Actuator-Node.hex`. Unlike CanBench, this image
+can drive motors after the existing neutral/ARM/deadman conditions are met.
+It uses the existing provisional settings in `App/Profiles/commissioning_parameters.h`;
+the build does not establish physical commissioning. The hardware watchdog
+remains off because its reset-safe behavior and timing are not configured.
+Debug/SafeFlash remain inhibited, and CanBench remains CAN-only. The older
+default-build descriptions below are historical.
+
 The current native FreeRTOS application, disabled hardware profile, artifacts
 and remaining commissioning blockers are documented in
 [FIRMWARE_INTEGRATION.md](FIRMWARE_INTEGRATION.md). Normal builds create ELF, HEX,

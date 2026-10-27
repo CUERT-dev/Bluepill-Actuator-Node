@@ -24,11 +24,16 @@
             }
         },
         {
-            "name": "Release",
+            "name": "release-base",
+            "hidden": true,
             "inherits": "default",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
+        },
+        {
+            "name": "Release",
+            "inherits": "BenchActuationRelease"
         },
         {
             "name": "SafeFlash",
@@ -52,7 +57,7 @@
         },
         {
             "name": "CanBenchRelease",
-            "inherits": "Release",
+            "inherits": "release-base",
             "cacheVariables": {
                 "GP_ENABLE_CAN": "ON",
                 "GP_ENABLE_ACTUATION": "OFF",
@@ -73,7 +78,7 @@
         },
         {
             "name": "SignalTestRelease",
-            "inherits": "Release",
+            "inherits": "release-base",
             "cacheVariables": {
                 "GP_ENABLE_CAN": "ON",
                 "GP_ENABLE_ACTUATION": "ON",
@@ -96,7 +101,7 @@
         },
         {
             "name": "BenchActuationRelease",
-            "inherits": "Release",
+            "inherits": "release-base",
             "cacheVariables": {
                 "GP_ENABLE_CAN": "ON",
                 "GP_ENABLE_ACTUATION": "ON",
